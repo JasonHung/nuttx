@@ -31,10 +31,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <errno.h>
 
 #include <nuttx/config.h>
 #include <nuttx/device.h>
 #include <nuttx/device_table.h>
+#include <nuttx/device_hid.h>
 #include <nuttx/util.h>
 #include <nuttx/usb.h>
 #include <nuttx/i2c.h>
@@ -110,6 +112,14 @@ static struct device devices[] = {
         .id             = 1,
     },
 #endif
+#ifdef CONFIG_ARA_BRIDGE_HAVE_HID_TOUCH
+    {
+        .type           = DEVICE_TYPE_HID_HW,
+        .name           = "hid_touch",
+        .desc           = "Multi-Touch HID Driver",
+        .id             = 0,
+    },
+#endif
 };
 
 static struct device_table bdb_device_table = {
@@ -126,6 +136,10 @@ static void bdb_driver_register(void)
 #ifdef CONFIG_ARA_BRIDGE_HAVE_USB3813
     extern struct device_driver usb3813_driver;
     device_register_driver(&usb3813_driver);
+#endif
+#ifdef CONFIG_ARA_BRIDGE_HAVE_HID_TOUCH
+    extern struct device_driver hid_touch_driver;
+    device_register_driver(&hid_touch_driver);
 #endif
 }
 #endif
