@@ -85,6 +85,10 @@ ifeq ($(CONFIG_ARCH_CHIP_DEVICE_SDIO),y)
 CSRCS += sdio_board.c
 endif
 
+ifeq ($(CONFIG_ARCH_CHIP_DEVICE_CODEC_RT5647),y)
+CSRCS += rt5647.c
+endif
+
 COBJS		= $(CSRCS:.c=$(OBJEXT))
 OOT_OBJS	?= # injected when doing out of tree development
 
