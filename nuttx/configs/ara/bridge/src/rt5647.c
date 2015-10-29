@@ -85,21 +85,94 @@ struct gb_audio_dai rt5647_dai = {
 };
 
 struct gb_audio_control rt5647_controls[] = {
-    {
-        "SPK Playback Switch", 0, GB_AUDIO_IFACE_MIXER, AUDIO_ACCESS_RW, 0,
-        GB_AUDIO_STREAM_TYPE_PLAYBACK,
-    },
-    {
-        "SPK Playback Volume", 1, GB_AUDIO_IFACE_MIXER, AUDIO_ACCESS_RW, 0,
-        GB_AUDIO_STREAM_TYPE_PLAYBACK,
-    },
+    CONTROL("I2S Switch", 0, MIXER, ALL, 0, BI), //SINGLE
+    /* DAC Digital Volume */
+    CONTROL("Mono DAC Playback Volume", 1, MIXER, ALL, 0, BI), //SOC_DOUBLE_TLV
+    CONTROL("DAC2 Playback Switch", 2, MIXER, ALL, 0, BI), //SOC_DOUBLE
+    CONTROL("DAC2 L source", 3, MIXER, ALL, 0, BI), //ENUM_SINGLE
+    CONTROL("DAC2 R source", 4, MIXER, ALL, 0, BI), //ENUM_SINGLE
+    /* Stereo DAC MIXL */
+    CONTROL("DAC L1 Switch", 5, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC L2 Switch", 6, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC R1 Switch", 7, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("ANC L Switch", 8, MIXER, ALL, 0, BI), //SINGLE
+    /* Stereo DAC MIXR */
+    CONTROL("DAC R1 Switch", 9, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC R2 Switch", 10, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC L1 Switch", 11, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("ANC R Switch", 12, MIXER, ALL, 0, BI), //SINGLE
+    /* DACs */
+    CONTROL("DAC L1 Control", 13, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC L2 Control", 14, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC R1 Control", 15, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC R2 Control", 16, MIXER, ALL, 0, BI), //SINGLE
+
+    /* SPK MIXL */
+    CONTROL("DAC L1 Switch", 17, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC L2 Switch", 18, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("INL Switch", 19, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("BST3 L Switch", 20, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("BST1 L Switch", 21, MIXER, ALL, 0, BI), //SINGLE
+
+    /* SPK MIXR */
+    CONTROL("DAC R1 Switch", 22, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC R2 Switch", 23, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("INR Switch", 24, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("BST3 R Switch", 25, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("BST2 R Switch", 26, MIXER, ALL, 0, BI), //SINGLE
+
+    /* SPOL MIX */
+    CONTROL("DAC R1 Switch", 27, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("DAC L1 Switch", 28, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("SPKVOL R Switch", 29, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("SPKVOL L Switch", 30, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("BST3 Switch", 31, MIXER, ALL, 0, BI), //SINGLE
+
+    /* SPOR MIX */
+    CONTROL("DAC R1 Switch", 32, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("SPKVOL R Switch", 33, MIXER, ALL, 0, BI), //SINGLE
+    CONTROL("BST3 Switch", 34, MIXER, ALL, 0, BI), //SINGLE
+
+    CONTROL("SPK Channel Switch", 35, MIXER, ALL, 0, BI), //SOC_DOUBLE
+    CONTROL("SPO Playback Volume", 36, MIXER, ALL, 0, BI), //SOC_DOUBLE_TLV
+    CONTROL("SPO Playback Switch", 37, MIXER, ALL, 0, BI), //SOC_DOUBLE
 };
 
 struct gb_audio_widget rt5647_widgets[] = {
-    {
-        "I2S1", 0, GB_AUDIO_WIDGET_TYPE_SUPPLY, GB_AUDIO_WIDGET_STATE_DISABLED,
-        EN_I2S1,
-    },
+    /* Audio Interface */
+    WIDGET("AIF1RX", 0, INPUT, DISABLED, 0),
+    WIDGET("AIF1TX", 0, OUTPUT, DISABLED, 0),
+    /* Digital Interface */
+    WIDGET("I2S1", 0, PGA, DISABLED, 0),
+    WIDGET("IF1 DAC1", 0, PGA, DISABLED, 0),
+    WIDGET("IF1 DAC2", 0, PGA, DISABLED, 0),
+    WIDGET("IF1 DAC1 L", 0, PGA, DISABLED, 0),
+    WIDGET("IF1 DAC1 R", 0, PGA, DISABLED, 0),
+    WIDGET("IF1 DAC2 L", 0, PGA, DISABLED, 0),
+    WIDGET("IF1 DAC2 R", 0, PGA, DISABLED, 0),
+    WIDGET("IF1 ADC", 0, PGA, DISABLED, 0),
+    /* DAC2 channel Mux */
+    WIDGET("DAC L2 Mux", 0, MUX, DISABLED, 0),
+    WIDGET("DAC R2 Mux", 0, MUX, DISABLED, 0),
+    /* DAC Mixer */
+    WIDGET("Stereo DAC MIXL", 0, MIXER, DISABLED, 0),
+    WIDGET("Stereo DAC MIXR", 0, MIXER, DISABLED, 0),
+    /* DACs */
+    WIDGET("DAC L1", 0, DAC, DISABLED, 0),
+    WIDGET("DAC L2", 0, DAC, DISABLED, 0),
+    WIDGET("DAC R1", 0, DAC, DISABLED, 0),
+    WIDGET("DAC R2", 0, DAC, DISABLED, 0),
+    /* OUT Mixer */
+    WIDGET("SPK MIXL", 0, MIXER, DISABLED, 0),
+    WIDGET("SPK MIXR", 0, MIXER, DISABLED, 0),
+
+    WIDGET("SPK amp", 0, PGA, DISABLED, 0),
+    /* SPO Mixer */
+    WIDGET("SPOL MIX", 0, MIXER, DISABLED, 0),
+    WIDGET("SPOR MIX", 0, MIXER, DISABLED, 0),
+    /* Output Lines */
+    WIDGET("SPOL", 0, OUTPUT, DISABLED, 0),
+    WIDGET("SPOR", 0, OUTPUT, DISABLED, 0),
 };
 
 struct gb_audio_route rt5647_routes[] = {
@@ -218,7 +291,7 @@ static int audcodec_read_value(struct bitctl *ctl, uint32_t *value)
 {
     uint32_t reg1 = 0, reg2 = 0, inv = 0;
     uint32_t shift1 = 0, shift2 = 0;
-    uint32_t max = 0, mask = 0;
+    uint32_t max = 0, min = 0, mask = 0;
     uint32_t data1 = 0, data2 = 0;
     int ret = 0;
 
@@ -232,6 +305,7 @@ static int audcodec_read_value(struct bitctl *ctl, uint32_t *value)
     shift2 = ctl->shift2;
     inv = ctl->inv;
     max = ctl->max;
+    min = ctl->min;
     mask = (1 << fls(max)) - 1;
 
     ret = audcodec_read(reg1, &data1);
@@ -242,6 +316,8 @@ static int audcodec_read_value(struct bitctl *ctl, uint32_t *value)
     if (inv) {
         data1 = max - data1;
     }
+    data1 = data1 - min;
+
     if (((reg1 == reg2) && (shift1 != shift2)) || (reg1 != reg2)) {
         /* two controls */
         ret = audcodec_read(reg2, &data2);
@@ -252,6 +328,43 @@ static int audcodec_read_value(struct bitctl *ctl, uint32_t *value)
         if (inv) {
             data2 = max - data2;
         }
+        data2 = data2 - min;
+    }
+    // TODO: need to fill return value to 'value'.
+    return 0;
+}
+
+static int audcodec_read_enum_bits(struct enumctl *ctl, uint32_t *value)
+{
+    uint32_t reg1 = 0, reg2 = 0;
+    uint32_t shift1 = 0, shift2 = 0;
+    uint32_t mask = 0;
+    uint32_t data1 = 0, data2 = 0;
+    int ret = 0;
+
+    if (!ctl || !value) {
+        return -EINVAL;
+    }
+
+    reg1 = ctl->reg;
+    reg2 = ctl->reg2;
+    shift1 = ctl->shift;
+    shift2 = ctl->shift2;
+    mask = ctl->mask;
+
+    ret = audcodec_read(reg1, &data1);
+    if (ret) {
+        return -EIO;
+    }
+    data1 = (data1 >> shift1) & mask;
+
+    if (((reg1 == reg2) && (shift1 != shift2)) || (reg1 != reg2)) {
+        /* two controls */
+        ret = audcodec_read(reg2, &data2);
+        if (ret) {
+            return -EIO;
+        }
+        data2 = (data2 >> shift2) & mask;
     }
     // TODO: need to fill return value to 'value'.
     return 0;
@@ -328,36 +441,93 @@ static int rt5647_set_dai_config(struct device *dev,
     return 0;
 }
 
+/*DAC2 L/R source*/ //MX-1B [6:4] [2:0]
+static const char *rt5647_dac12_src[] = {
+    "IF1 DAC", "IF2 DAC", "IF3 DAC", "Mono ADC", "VAD_ADC"
+};
+static const char *rt5647_dacr2_src[] = {
+    "IF1 DAC", "IF2 DAC", "IF3 DAC", "Mono ADC", "Haptic"
+};
+
 static int rt5647_get_control(struct device *dev, uint8_t control_id,
                               uint32_t *value)
 {
     int ret = 0;
     struct bitctl ctl;
+    struct enumctl e;
 
     /* TODO: control_id should define as '#define ctl_xxx' or enum ctl_xxx. */
     switch (control_id) {
-        case 0: /* 0: SPO L/R Playback Switch */
-            ctl.reg = RT5647_SPKOUT;
-            ctl.reg2 = RT5647_SPKOUT;
-            ctl.shift = 15; /* TODO: should define as RT5647_L_MUTE_SFT */
-            ctl.shift2 = 7;
-            ctl.inv = 1;
-            audcodec_read_bits(&ctl, value);
+        case 0: /* I2S Switch */
+            BITCTL(ctl, RT5647_PWR_DIG1, RT5647_PWR_I2S1_BIT, 0);
+            audcodec_read_bit(&ctl, value);
         break;
-        case 1: /* 1: SPO L/R Playback Volume */
-            ctl.reg = RT5647_SPKOUT;
-            ctl.reg2 = RT5647_SPKOUT;
-            ctl.shift = 8;
-            ctl.shift2 = 0;
-            ctl.inv = 0;
-            ctl.max = 0x27;
-            ctl.min = 0;
+        case 1: /* Mono DAC Playback Volume */
+            RANGCTL(ctl, RT5647_DAC2_DIG_VOL, RT5647_L_VOL_SFT,
+                    RT5647_R_VOL_SFT, 0, 175, 0); // TODO: TLV
             audcodec_read_value(&ctl, value);
         break;
-        case 2: /* 2: I2S Power enable */
-            ctl.reg = RT5647_PWR_CTRL1;
-            ctl.shift = 15;
-            ctl.inv = 0;
+        case 2: /* DAC2 Playback Switch */
+            BITSCTL(ctl, RT5647_DAC_CTRL, RT5647_M_DAC_L2_VOL_SFT,
+                    RT5647_M_DAC_R2_VOL_SFT, 1);
+            audcodec_read_bits(&ctl, value);
+        break;
+        case 3: /* DAC2 L source */
+            ENUMCTL(e, RT5647_DAC_CTRL, RT5647_DAC2_L_SEL_SFT, 5, 0x7,
+                    rt5647_dac12_src);
+            audcodec_read_enum_bits(&e, value);
+        break;
+        case 4: /* DAC2 R source */
+            ENUMCTL(e, RT5647_DAC_CTRL, RT5647_DAC2_R_SEL_SFT, 5, 0x7,
+                    rt5647_dacr2_src);
+            audcodec_read_enum_bits(&e, value);
+        break;
+        case 5: /* DAC L1 Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_DAC_L1_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 6: /* DAC L2 Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_DAC_L2_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 7: /* DAC R1 Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_DAC_R1_STO_L_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 8: /* ANC L Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_ANC_DAC_L_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 9: /* DAC R1 Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_DAC_R1_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 10: /* DAC R2 Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_DAC_R2_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 11: /* DAC L1 Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_DAC_L1_STO_R_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 12: /* ANC R Switch */
+            BITCTL(ctl, RT5647_STO_DAC_MIXER, RT5647_M_ANC_DAC_R_SFT, 1);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 13: /* DAC L1 Control */
+            BITCTL(ctl, RT5647_PWR_DIG1, RT5647_PWR_DAC_L1_BIT, 0);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 14: /* DAC L2 Control */
+            BITCTL(ctl, RT5647_PWR_DIG1, RT5647_PWR_DAC_L2_BIT, 0);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 15: /* DAC R1 Control */
+            BITCTL(ctl, RT5647_PWR_DIG1, RT5647_PWR_DAC_R1_BIT, 0);
+            audcodec_read_bit(&ctl, value);
+        break;
+        case 16: /* DAC R2 Control */
+            BITCTL(ctl, RT5647_PWR_DIG1, RT5647_PWR_DAC_R2_BIT, 0);
             audcodec_read_bit(&ctl, value);
         break;
     }
@@ -372,29 +542,8 @@ static int rt5647_set_control(struct device *dev, uint8_t control_id,
 
     /* TODO: control_id should define as '#define ctl_xxx' or enum ctl_xxx. */
     switch (control_id) {
-        case 0: /* 0: SPO L/R Playback Switch */
-            ctl.reg = RT5647_SPKOUT;
-            ctl.reg2 = RT5647_SPKOUT;
-            ctl.shift = 15; /* TODO: should define as RT5647_L_MUTE_SFT */
-            ctl.shift2 = 7;
-            ctl.inv = 1;
-            //audcodec_write_bits(&ctl, value);
-        break;
-        case 1: /* 1: SPO L/R Playback Volume */
-            ctl.reg = RT5647_SPKOUT;
-            ctl.reg2 = RT5647_SPKOUT;
-            ctl.shift = 8;
-            ctl.shift2 = 0;
-            ctl.inv = 0;
-            ctl.max = 0x27;
-            ctl.min = 0;
-            //audcodec_write_value(&ctl, value);
-        break;
-        case 2: /* 2: I2S Power enable */
-            ctl.reg = RT5647_PWR_CTRL1;
-            ctl.shift = 15;
-            ctl.inv = 0;
-            //audcodec_write_bit(&ctl, value);
+        case 0:
+
         break;
     }
     return ret;
@@ -402,6 +551,10 @@ static int rt5647_set_control(struct device *dev, uint8_t control_id,
 
 static int rt5647_enable_widget(struct device *dev, uint8_t widget_id)
 {
+    switch (widget_id) {
+        case 0:
+        break;
+    }
     return 0;
 }
 

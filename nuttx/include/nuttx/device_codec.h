@@ -74,6 +74,17 @@ struct bitctl {
     uint32_t min;
 };
 
+struct enumctl {
+    uint32_t reg;
+    uint32_t reg2;
+    uint32_t shift;
+    uint32_t shift2;
+    uint32_t max;
+    uint32_t mask;
+    const char **texts;
+    uint32_t *values;
+};
+
 typedef int (*device_codec_event_callback)(struct device *dev, uint32_t event);
 
 struct device_codec_type_ops {
@@ -81,9 +92,9 @@ struct device_codec_type_ops {
     int (*get_topology)(struct device *dev, struct gb_audio_topology *topology);
 
     int (*get_dai_config)(struct device *dev,
-                           struct device_codec_dai_config *dai_config);
+                          struct device_codec_dai_config *dai_config);
     int (*set_dai_config)(struct device *dev,
-                           struct device_codec_dai_config *dai_config);
+                          struct device_codec_dai_config *dai_config);
 
     int (*get_control)(struct device *dev, uint8_t control_id, uint32_t *value);
     int (*set_control)(struct device *dev, uint8_t control_id, uint32_t value);
