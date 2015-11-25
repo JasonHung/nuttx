@@ -331,6 +331,24 @@ enum {
     RT5647_WIDGET_MAX
 };
 
+struct gb_audio_control {
+    __u8    name[AUDIO_CONTROL_NAME_MAX];
+    __u8    id;     /* 0-63 */
+    __u8    iface;      /* GB_AUDIO_IFACE_* */
+    __le16  dai_cport;
+    __le32  access;     /* GB_AUDIO_ACCESS_* */
+    __u8    count;
+    struct gb_audio_ctl_elem_info   info[0]; /* 'count' entries */
+} __packed;
+
+struct audio_control {
+    struct gb_audio_control control;
+    void *priv;
+    int (*get)(struct audio_control *ctl,
+               struct gb_audio_ctl_elem_value *value);
+    int (*set)(struct audio_control *ctl,
+               struct gb_audio_ctl_elem_value *value);
+
 /**
  * audio control list
  */
