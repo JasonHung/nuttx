@@ -58,7 +58,7 @@ struct device_codec_pcm {
 
 struct device_codec_dai {
     uint32_t    mclk_freq;
-    uint32_t    protocol; /* low-level protocol defining WCLK, offset, etc. */
+    uint8_t     protocol; /* low-level protocol defining WCLK, offset, etc. */
     uint8_t     wclk_polarity;
     uint8_t     wclk_change_edge;
     uint8_t     data_rx_edge;

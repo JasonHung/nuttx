@@ -56,5 +56,7 @@ struct i2s_test_info {
 extern sem_t i2s_test_done_sem;
 extern struct device_i2s_pcm i2s_test_pcm;
 extern struct device_i2s_dai i2s_test_dai;
+extern struct device_codec_pcm codec_test_pcm;
+extern struct device_codec_dai codec_test_dai;
 
 #endif /* __I2S_TEST_H__ */

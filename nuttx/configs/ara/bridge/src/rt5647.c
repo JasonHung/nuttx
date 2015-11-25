@@ -29,6 +29,9 @@
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <nuttx/lib.h>
 #include <nuttx/util.h>
 #include <nuttx/kmalloc.h>
@@ -185,8 +188,13 @@ struct rt5647_reg rt5647_init_regs[] = {
     { RT5647_REC_MIXER_R_CTRL, 0x007F },/* Mic1 -> RECMIXR */
 
     { RT5647_STO1_ADC_DIGI_MIXER, 0x7060 },
-
     { RT5647_STO1_ADC_DIGI_VOL, 0xAFAF },/* Mute STO1 ADC for depop, Digital Input Gain */
+
+    /* for jason testing */
+    { RT5647_PWR_MGT_2, 0x0E00 },   // filter power // jason
+    { RT5647_PWR_MGT_4, 0x0200 },   // pll power // jason
+    { RT5647_PWR_MGT_5, 0x3002 },   // LDO2 power control // jason
+
 };
 
 /**
@@ -495,10 +503,10 @@ audio_route rt5647_routes[] = {
 
     // IF1 DAC2 L
     { RT5647_WIDGET_IF1_DAC2L, RT5647_WIDGET_DACL2_MUX,
-      RT5647_CTL_DAC2_LSRC, 0 },
+      RT5647_CTL_DAC2_LSRC, 0 }, //jason
     // IF1 DAC2 R
     { RT5647_WIDGET_IF1_DAC2R, RT5647_WIDGET_DACR2_MUX,
-      RT5647_CTL_DAC2_RSRC, 0 },
+      RT5647_CTL_DAC2_RSRC, 0 }, //jason
 
     // DAC L2 Mux
     { RT5647_WIDGET_DACL2_MUX, RT5647_WIDGET_DACL2_VOL, NOCONTROL, 0 },
@@ -520,11 +528,11 @@ audio_route rt5647_routes[] = {
 
     // DAC L1
     { RT5647_WIDGET_DAC_L1, RT5647_WIDGET_SPK_MIXL, RT5647_CTL_SPKL_DACL1, 0 },
-    { RT5647_WIDGET_DAC_L1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACL1, 0 },
+    //{ RT5647_WIDGET_DAC_L1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACL1, 0 },//jason tmp disable
     // DAC R1
     { RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPK_MIXR, RT5647_CTL_SPKR_DACR1, 0 },
-    { RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACR1, 0 },
-    { RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOR_MIX, RT5647_CTL_SPOR_DACR1, 0 },
+    //{ RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACR1, 0 }, //jason tmp disable
+    //{ RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOR_MIX, RT5647_CTL_SPOR_DACR1, 0 }, //jason tmp disable
 
     // SPK MIXL
     { RT5647_WIDGET_SPK_MIXL, RT5647_WIDGET_SPKVOLL, NOCONTROL, 0 },
@@ -641,6 +649,7 @@ static uint32_t rt5647_audcodec_hw_read(uint32_t reg, uint32_t *value)
     }
 
     *value = (uint32_t) (data & 0xFF) << 8 | ((data >> 8) & 0xFF);
+    //printf("I2C-R: %02X %04X\n", reg, *value);
     return 0;
 }
 
@@ -685,6 +694,7 @@ static uint32_t rt5647_audcodec_hw_write(uint32_t reg, uint32_t value)
     if (I2C_TRANSFER(info->i2c, msg, 1)) {
         return -EIO;
     }
+    printf("I2C-W: %02X %04X\n", reg, value);
     return 0;
 }
 
@@ -699,7 +709,7 @@ static int rt5647_get_topology_size(struct device *dev, uint16_t *size)
 {
     struct rt5647_info *info = NULL;
     int tpg_size = 0;
-
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev) || !size) {
         return -EINVAL;
     }
@@ -728,7 +738,7 @@ static int rt5647_get_topology(struct device *dev,
     struct rt5647_info *info = NULL;
     int len = 0, i = 0;
     uint8_t *data = NULL;
-
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev) || !topology) {
         return -EINVAL;
     }
@@ -934,6 +944,7 @@ static int rt5647_get_caps(struct device *dev, unsigned int dai_idx,
  * @param code - pll_code structure, included m,n,k,bypass setting
  * @return 0 on success, negative errno on error
  */
+#if 0
 int rt5647_pll_calc(uint32_t infreq, uint32_t outfreq, struct pll_code *code) {
     int m = 0, n = 0, k = 0, find = 0;
     int t = 0, t1 = 0, out;
@@ -961,12 +972,59 @@ findout:
         code->n = n;
         code->k = k;
         code->bp = 0; /* assume m_bypass = 0 temporarily */
-
+        printf("%s: m:%d, n:%d, k:%d, bp:%d\n",__func__,m,n,k,code->bp);
         return 0;
     }
     return -EINVAL;
 }
+#else
+int rt5647_pll_calc(uint32_t infreq, uint32_t outfreq, struct pll_code *code)
+{
+    int n = 0, n1, m = 0, m1, k = 0, bp = 0;
+    int min = 0, tmp = 0, in1 = 0, in2 = 0, out1 = 0;
 
+    if (!code) {
+        return -EINVAL;
+    }
+    k = (outfreq + (infreq / 2)) / infreq;
+
+    min = abs(outfreq - infreq);
+    for (n1 = 0; n1 <= RT5647_PLL_N_CODE_MAX; n1++) {
+        in1 = infreq / (k + 2);
+        out1 = outfreq / (n1 + 2);
+
+        tmp = abs(out1 - in1);
+        if (tmp <= min) {
+            bp = 1;
+            n = n1;
+            if (!tmp) {
+                goto findout;
+            }
+            min = tmp;
+        }
+        for (m1 = 0; m1 <= RT5647_PLL_M_CODE_MAX; m1++) {
+            in2 = in1 / (m1 + 2);
+            tmp = abs(out1 - in2);
+            if (tmp <= min) {
+                bp = 0;
+                n = n1;
+                m = m1;
+                if (!tmp) {
+                    goto findout;
+                }
+                min = tmp;
+            }
+        }
+    }
+findout:
+    code->m = m;
+    code->n = n;
+    code->k = k;
+    code->bp = bp;
+    printf("%s: m:%d, n:%d, k:%d, bp:%d\n",__func__,m,n,k,bp);
+    return 0;
+}
+#endif
 /**
  * @brief set audio dai setting
  *
@@ -986,7 +1044,7 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     struct pll_code code;
     int sysclk = 0, ratefreq = 0, numbits = 0, ret = 0;
     uint32_t value = 0, mask = 0, format = 0;
-
+    printf("%s\n",__func__);
     if (!dev || !device_get_private(dev) || !pcm || !dai) {
         return -EINVAL;
     }
@@ -1021,6 +1079,8 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     }
 
     sysclk = 256 * ratefreq; /* 256*FS */
+
+    printf("sysclk = %d, mclk_freq = %d, ratefreq = %d\n", sysclk, dai->mclk_freq, ratefreq);
     ret = rt5647_pll_calc(dai->mclk_freq, sysclk, &code);
     if (ret) {
         return -EINVAL;
@@ -1153,7 +1213,9 @@ static int rt5647_set_control(struct device *dev, uint8_t control_id,
     list_foreach_safe(&info->control_list, iter, iter_next) {
         ctl = list_entry(iter, struct control_node, list);
         aud_ctl = ctl->control;
+        printf("#aud_ctl[%s], id:%d, index:%d\n",aud_ctl->control.name, aud_ctl->control.id, ctl->index);
         if ((aud_ctl->control.id == control_id) && (ctl->index == index)) {
+            printf("control[%s], id:%d, index:%d\n",aud_ctl->control.name, control_id, index);
             if (aud_ctl->set) {
                 /* perform set() to write control value or codec register */ 
                 return aud_ctl->set(aud_ctl, value);
@@ -1276,7 +1338,269 @@ static int rt5647_get_tx_delay(struct device *dev, uint32_t *delay)
     *delay = info->tx_delay;
     return 0;
 }
+#if 0
+struct rt5647_reginfo {
+    uint8_t name[32];
+    uint8_t reg;
+    uint8_t prreg;
+    uint8_t readable;
+};
 
+struct rt5647_reginfo regmap[] = {
+    {"RT5647_RESET", 0x00, 0, 0 },
+    {"RT5647_SPKOUT_VOL", 0x01, 0, 1 },
+    {"RT5647_HPOUT_VOL", 0x02, 0, 1 },
+    {"RT5647_LOUT_VOL", 0x03, 0, 1 },
+    {"RT5647_LOUT_CTRL", 0x05, 0, 1 },
+    {"RT5647_MONO_OUT_CTRL", 0x04, 0, 1 },
+    {"RT5647_IN1_CTRL1", 0x0A, 0, 1 },
+    {"RT5647_IN1_CTRL2", 0x0B, 0, 1 },
+    {"RT5647_IN1_CTRL3", 0x0C, 0, 1 },
+    {"RT5647_IN2_CTRL", 0x0D, 0, 1 },
+    {"RT5647_IN3_CTRL", 0x0E, 0, 1 },
+    {"RT5647_INL_INR_VOL", 0x0F, 0, 1 },
+    {"RT5647_SIDETONE_CTRL", 0x18, 0, 1 },
+    {"RT5647_DACL1_R1_DIGI_VOL", 0x19, 0, 1 },
+    {"RT5647_DACL2_R2_DIGI_VOL", 0x1A, 0, 1 },
+    {"RT5647_DACL2_R2_DIGI_MUTE", 0x1B, 0, 1 },
+    {"RT5647_STO1_ADC_DIGI_VOL", 0x1C, 0, 1 },
+    {"RT5647_MONO_ADC_DIGI_VOL", 0x1D, 0, 1 },
+    {"RT5647_STO1_ADC_BST_GAIN", 0x1E, 0, 1 },
+    {"RT5647_MONO_ADC_BST_GAIN", 0x20, 0, 1 },
+    {"RT5647_STO1_ADC_DIGI_MIXER", 0x27, 0, 1 },
+    {"RT5647_MONO_ADC_DIGI_MIXER", 0x28, 0, 1 },
+    {"RT5647_ADC_DAC_DIGI_MIXER", 0x29, 0, 1 },
+    {"RT5647_DAC_STO_DIGI_MIXER", 0x2A, 0, 1 },
+    {"RT5647_DAC_MONO_DIGI_MIXER", 0x2B, 0, 1 },
+    {"RT5647_DAC_DD_DIGI_MIXER ", 0x2C, 0, 1 },
+    {"RT5647_DATA_COPY_MODE", 0x2F, 0, 1 },
+    {"RT5647_PDM_CTRL", 0x31, 0, 1 },
+    {"RT5647_REC_MIXER_L_GAIN", 0x3B, 0, 1 },
+    {"RT5647_REC_MIXER_L_CTRL", 0x3C, 0, 1 },
+    {"RT5647_REC_MIXER_R_GAIN", 0x3D, 0, 1 },
+    {"RT5647_REC_MIXER_R_CTRL", 0x3E, 0, 1 },
+    {"RT5647_HP_L_MIXER", 0x3F, 0, 1 },
+    {"RT5647_HP_L_MIXER_MUTE", 0x40, 0, 1 },
+    {"RT5647_HP_R_MIXER", 0x41, 0, 1 },
+    {"RT5647_HP_R_MIXER_MUTE", 0x42, 0, 1 },
+    {"RT5647_HPO_MIXER_CTRL", 0x45, 0, 1 },
+    {"RT5647_SPK_L_MIXER_CTRL", 0x46, 0, 1 },
+    {"RT5647_SPK_R_MIXER_CTRL", 0x47, 0, 1 },
+    {"RT5647_SPO_MIXER_CTRL", 0x48, 0, 1 },
+    {"RT5647_SPK_AMP_GAIN", 0x4A, 0, 1 },
+    {"RT5647_MONO_MIXER_GAIN", 0x4B, 0, 1 },
+    {"RT5647_MONO_MIXER_CTRL", 0x4C, 0, 1 },
+    {"RT5647_OUT_L_MIXER_GAIN1", 0x4D, 0, 1 },
+    {"RT5647_OUT_L_MIXER_GAIN2", 0x4E, 0, 1 },
+    {"RT5647_OUT_L_MIXER_MUTE", 0x4F, 0, 1 },
+    {"RT5647_OUT_R_MIXER_GAIN1", 0x50, 0, 1 },
+    {"RT5647_OUT_R_MIXER_GAIN2", 0x51, 0, 1 },
+    {"RT5647_OUT_R_MIXER_MUTE", 0x52, 0, 1 },
+    {"RT5647_LOUT_MIXER", 0x53, 0, 1 },
+    {"RT5647_HAPTIC_CTRL1", 0x56, 0, 1 },
+    {"RT5647_HAPTIC_CTRL2", 0x57, 0, 1 },
+    {"RT5647_HAPTIC_CTRL3", 0x58, 0, 1 },
+    {"RT5647_HAPTIC_CTRL4", 0x59, 0, 1 },
+    {"RT5647_HAPTIC_CTRL5", 0x5A, 0, 1 },
+    {"RT5647_HAPTIC_CTRL6", 0x5B, 0, 1 },
+    {"RT5647_HAPTIC_CTRL7", 0x5C, 0, 1 },
+    {"RT5647_HAPTIC_CTRL8", 0x5D, 0, 1 },
+    {"RT5647_HAPTIC_CTRL9", 0x5E, 0, 1 },
+    {"RT5647_HAPTIC_CTRL10", 0x5F, 0, 1 },
+    {"RT5647_PWR_MGT_1", 0x61, 0, 1 },
+    {"RT5647_PWR_MGT_2", 0x62, 0, 1 },
+    {"RT5647_PWR_MGT_3", 0x63, 0, 1 },
+    {"RT5647_PWR_MGT_4", 0x64, 0, 1 },
+    {"RT5647_PWR_MGT_5", 0x65, 0, 1 },
+    {"RT5647_PWR_MGT_6", 0x66, 0, 1 },
+    {"RT5647_PR_INDEX", 0x6A, 0, 1 },
+    {"RT5647_PR_DATA", 0x6C, 0, 1 },
+    {"RT5647_I2S1_CTRL", 0x70, 0, 1 },
+    {"RT5647_I2S2_CTRL", 0x71, 0, 1 },
+    {"RT5647_I2S3_CTRL", 0x72, 0, 1 },
+    {"RT5647_ADC_DAC_CLK_CTRL", 0x73, 0, 1 },
+    {"RT5647_ADC_DAC_HPF_CTRL", 0x74, 0, 1 },
+    {"RT5647_DMIC1", 0x75, 0, 1 },
+    {"RT5647_DMIC2", 0x76, 0, 1 },
+    {"RT5647_TDM1", 0x77, 0, 1 },
+    {"RT5647_TDM2", 0x78, 0, 1 },
+    {"RT5647_TDM3", 0x79, 0, 1 },
+    {"RT5647_GLOBAL_CLOCK", 0x80, 0, 1 },
+    {"RT5647_PLL1", 0x81, 0, 1 },
+    {"RT5647_PLL2", 0x82, 0, 1 },
+    {"RT5647_ASRC1", 0x83, 0, 1 },
+    {"RT5647_ASRC2", 0x84, 0, 1 },
+    {"RT5647_ASRC3", 0x85, 0, 1 },
+    {"RT5647_ASRC4", 0x8A, 0, 1 },
+    {"RT5647_HP_DEPOP_1", 0x8E, 0, 1 },
+    {"RT5647_HP_DEPOP_2", 0x8F, 0, 1 },
+    {"RT5647_HP_AMP_CTRL", 0xD6, 0, 1 },
+    {"RT5647_MICBIAS", 0x93, 0, 1 },
+    {"RT5647_JD1", 0x94, 0, 1 },
+    {"RT5647_CLS_D_AMP", 0xA0, 0, 1 },
+    {"RT5647_ADC_EQ1", 0xAE, 0, 1 },
+    {"RT5647_ADC_EQ2", 0xAF, 0, 1 },
+    {"RT5647_DAC_EQ1", 0xB0, 0, 1 },
+    {"RT5647_DAC_EQ2", 0xB1, 0, 1 },
+    {"RT5647_DRC_AGC_2", 0xB3, 0, 1 },
+    {"RT5647_DRC_AGC_3", 0xB4, 0, 1 },
+    {"RT5647_DRC_AGC_4", 0xB5, 0, 1 },
+    {"RT5647_DRC_AGC_5", 0xB6, 0, 1 },
+    {"RT5647_DRC_AGC_6", 0xB7, 0, 1 },
+    {"RT5647_DRC_LIMITER", 0xE7, 0, 1 },
+    {"RT5647_DRC_BASS_LIMITER", 0xE9, 0, 1 },
+    {"RT5647_DRC_CTRL", 0xEA, 0, 1 },
+    {"RT5647_DRC_BASS_CTRL_1", 0xF0, 0, 1 },
+    {"RT5647_DRC_BASS_CTRL_2", 0xF1, 0, 1 },
+    {"RT5647_DRC_BASS_CTRL_3", 0xF2, 0, 1 },
+    {"RT5647_DRC_BASS_CTRL_4", 0xF3, 0, 1 },
+    {"RT5647_DRC_BASS_CTRL_5", 0xF4, 0, 1 },
+    {"RT5647_JACK_DET_CTRL_1", 0xBB, 0, 1 },
+    {"RT5647_JACK_DET_CTRL_2", 0xBC, 0, 1 },
+    {"RT5647_JACK_DET_CTRL_3", 0xF8, 0, 1 },
+    {"RT5647_JACK_DET_CTRL_4", 0xF9, 0, 1 },
+    {"RT5647_IRQ_CTRL_1", 0xBD, 0, 1 },
+    {"RT5647_IRQ_CTRL_2", 0xBE, 0, 1 },
+    {"RT5647_IRQ_CTRL_3", 0xBF, 0, 1 },
+    {"RT5647_GPIO_CTRL_1", 0xC0, 0, 1 },
+    {"RT5647_GPIO_CTRL_2", 0xC1, 0, 1 },
+    {"RT5647_GPIO_CTRL_3", 0xC2, 0, 1 },
+    {"RT5647_GPIO_CTRL_4", 0xC3, 0, 1 },
+    {"RT5647_TDM_PCM_MODE_B", 0xCF, 0, 1 },
+    {"RT5647_TRUTREBLE_CTRL_1", 0xD0, 0, 1 },
+    {"RT5647_TRUTREBLE_CTRL_2", 0xD1, 0, 1 },
+    {"RT5647_STO1_ADC_WIND_FILTER1", 0xD3, 0, 1 },
+    {"RT5647_STO1_ADC_WIND_FILTER2", 0xD4, 0, 1 },
+    {"RT5647_MONO_ADC_WIND_FILTER1", 0xEC, 0, 1 },
+    {"RT5647_MONO_ADC_WIND_FILTER2", 0xED, 0, 1 },
+    {"RT5647_SOFT_VOL_ZCD_CTRL1", 0xD9, 0, 1 },
+    {"RT5647_SOFT_VOL_ZCD_CTRL2", 0xDA, 0, 1 },
+    {"RT5647_INLINE_CMD_CTRL1", 0xDB, 0, 1 },
+    {"RT5647_INLINE_CMD_CTRL2", 0xDC, 0, 1 },
+    {"RT5647_INLINE_CMD_CTRL3", 0xDD, 0, 1 },
+    {"RT5647_GENERAL_CTRL_1", 0xFA, 0, 1 },
+    {"RT5647_VENDOR_ID", 0xFE, 0, 1 },
+};
+#endif
+
+void dump_registers(struct device *dev)
+{
+#if 0
+    int i = 0;
+    uint32_t value = 0;
+    for (i = 0; i < ARRAY_SIZE(regmap); i++) {
+        if (regmap[i].readable) {
+            if (!regmap[i].prreg) {
+                if (!rt5647_audcodec_hw_read(regmap[i].reg, &value)) {
+                    continue;
+                }
+                printf("REG[%s][%02X] = %04X\n",regmap[i].name,regmap[i].reg,
+                       value);
+            }
+        }
+    }
+#else
+    int i = 0;
+    uint32_t value = 0;
+    for (i = 0; i < 0xFF; i++) {
+        if (rt5647_audcodec_hw_read(i, &value)) {
+            continue;
+        }
+        printf("REG[%02X] = %04X\n", i, value);
+    }
+#endif
+}
+
+struct gb_audio_widget * find_widget(struct audio_widget *widgets,
+                                     int num_widgets, int id)
+{
+    int i = 0;
+    for (i = 0; i < num_widgets; i++) {
+        if (widgets[i].widget.id == id) {
+            return &widgets[i].widget;
+        }
+    }
+    return NULL;
+}
+
+int test_audio_codec(struct device *dev)
+{
+    struct rt5647_info *info = NULL;
+
+    int i = 0;
+    struct audio_widget *widgets = NULL;
+    struct gb_audio_widget *src = NULL, *dst = NULL;
+    struct gb_audio_ctl_elem_value values[2];
+
+    printf("+%s\n",__func__);
+
+    if (!dev || !device_get_private(dev)) {
+        return -EINVAL;
+    }
+    info = device_get_private(dev);
+
+    // list all component
+    for (i = 0; i < info->num_dais; i++) {
+        printf("dai[%d] : %s\n", i, info->dais[i].dai.name);
+    }
+    for (i = 0; i < info->num_controls; i++) {
+        printf("control[%d] : %s\n", i, info->controls[i].control.name);
+    }
+    for (i = 0; i < info->num_widgets; i++) {
+        printf("widget[%d] : %s\n", i, info->widgets[i].widget.name);
+    }
+    for (i = 0; i < info->num_routes; i++) {
+        printf("route[%d] : %d -> %d ->%d-%d\n", i, info->routes[i].source_id,
+               info->routes[i].control_id, info->routes[i].destination_id,
+               info->routes[i].index );
+    }
+
+    widgets = info->widgets;
+    // initialize routing table
+    for (i = 0; i < info->num_routes; i++) {
+        /* enable widget of source */
+        src = find_widget(widgets, info->num_routes, info->routes[i].source_id);
+        dst = find_widget(widgets, info->num_routes, info->routes[i].destination_id);
+        if (!src || !dst) {
+            /* can't find these widgets, skip it */
+            continue;
+        }
+        printf("Route: %s -> %s [%x-%u]\n", src->name, dst->name,
+               info->routes[i].control_id, info->routes[i].index);
+        /* enable widgets of srouce and destination */
+        rt5647_enable_widget(dev, src->id);
+        rt5647_enable_widget(dev, dst->id);
+
+        if (info->routes[i].control_id != 0xFF) {
+            if (dst->type == GB_AUDIO_WIDGET_TYPE_MUX) {
+                printf("Mux type: %s\n", dst->name);
+                values[0].value.integer_value = info->routes[i].index;
+            } else {
+                values[0].value.integer_value = 1;
+            }
+            rt5647_set_control(dev, info->routes[i].control_id, 
+                                     info->routes[i].index, values);
+        }
+    }
+
+    values[0].value.integer_value = 8;
+    values[1].value.integer_value = 8;
+    rt5647_set_control(dev, RT5647_CTL_SPKOUT_VOL, 0, values);
+    values[0].value.integer_value = 0xAF;
+    values[1].value.integer_value = 0xAF;
+    rt5647_set_control(dev, RT5647_CTL_DAC2_VOL, 0, values);
+
+    values[0].value.integer_value = 1;
+    values[1].value.integer_value = 1;
+    rt5647_set_control(dev, RT5647_CTL_SPKOUT_MUTE, 0, values);
+    rt5647_set_control(dev, RT5647_CTL_SPKVOL_MUTE, 0, values);
+    rt5647_set_control(dev, RT5647_CTL_DAC2_SWITCH, 0, values);
+
+    dump_registers(dev);
+
+    printf("-%s\n",__func__);
+    return 0;
+}
 /**
  * @brief start to transfer audio streaming
  *
@@ -1397,6 +1721,7 @@ static int rt5647_start_rx(struct device *dev, uint32_t dai_idx)
                         1 << RT5647_PWR1_I2S1_EN);
     }
     info->state |= CODEC_DEVICE_FLAG_RX_START;
+    test_audio_codec(dev);
     return 0;
 }
 
@@ -1517,7 +1842,7 @@ static int rt5647_audcodec_open(struct device *dev)
     struct rt5647_info *info = NULL;
     int ret = 0, i = 0;
     uint32_t id = 0;
-
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev)) {
         return -EINVAL;
     }
@@ -1563,7 +1888,7 @@ static void rt5647_audcodec_close(struct device *dev)
     struct rt5647_info *info = NULL;
     struct audio_widget *widget = NULL;
     int i = 0;
-
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev)) {
         return;
     }
@@ -1618,7 +1943,7 @@ static int rt5647_audcodec_probe(struct device *dev)
     struct audio_control *controls = NULL;
     struct audio_widget *widgets = NULL;
     int i = 0, j = 0;
-
+    printf("%s\n", __func__);
     if (!dev) {
         return -EINVAL;
     }
@@ -1713,7 +2038,7 @@ static void rt5647_audcodec_remove(struct device *dev)
     struct rt5647_info *info = NULL;
     struct list_head *iter, *iter_next;
     struct control_node *ctlnode = NULL;
-
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev)) {
         return;
     }

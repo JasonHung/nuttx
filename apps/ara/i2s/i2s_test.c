@@ -43,6 +43,7 @@
 
 #include <nuttx/device.h>
 #include <nuttx/device_i2s.h>
+#include <nuttx/device_codec.h>
 #include <nuttx/ring_buf.h>
 #include "i2s_test.h"
 #include "gen_pcm.h"
@@ -69,6 +70,8 @@ struct i2s_test_sample {
     uint16_t    left;
     uint16_t    right;
 };
+
+int test_audio_codec(struct device *dev);
 
 static void i2s_test_print_usage(char *argv[])
 {
@@ -491,8 +494,9 @@ static void i2s_test_stop_receiver(struct device *dev)
 
 static int i2s_test_start_streaming_transmitter(struct i2s_test_info *info)
 {
-    struct device *dev;
+    struct device *dev, *dev_codec;
     struct device_i2s_dai dai;
+    struct device_codec_dai codec_dai;
     int ret;
 
     if ((!info->is_transmitter) ||
@@ -506,12 +510,30 @@ static int i2s_test_start_streaming_transmitter(struct i2s_test_info *info)
         fprintf(stderr, "open failed\n");
         return -EIO;
     }
+    dev_codec = device_open(DEVICE_TYPE_CODEC_HW, 0);
+    if (!dev) {
+        fprintf(stderr, "codec open failed\n");
+        return -EIO;
+    }
 
     /*validate transmitter configuration */
     ret = devcie_i2s_get_caps(dev,
                               DEVICE_I2S_ROLE_MASTER,
                               &i2s_test_pcm,
                               &dai);
+
+    /* Check for matching test configuration */
+    if (ret) {
+
+        fprintf(stderr, "I2S master does support hard coded pcm test configuration\n");
+        goto err_dev_close;
+    }
+
+    /*validate transmitter configuration */
+    ret = device_codec_get_caps(dev_codec,0,
+                              DEVICE_CODEC_ROLE_SLAVE,
+                              &codec_test_pcm,
+                              &codec_dai);
 
     /* Check for matching test configuration */
     if (ret) {
@@ -559,6 +581,26 @@ static int i2s_test_start_streaming_transmitter(struct i2s_test_info *info)
         goto err_dev_close;
     }
 
+    memcpy(&codec_dai, &i2s_test_dai, sizeof(struct device_codec_dai));
+    ret = device_codec_set_config(dev_codec,0,
+                                DEVICE_CODEC_ROLE_SLAVE,
+                                &codec_test_pcm,
+                                &codec_dai);
+    if (ret) {
+        fprintf(stderr, "codec set configuration failed: %d\n", ret);
+        goto err_dev_close;
+    }
+    // codec test
+#if 0
+    ret = test_audio_codec(dev_codec);
+    if (ret) {
+        fprintf(stderr, "codec test failed: %d\n", ret);
+        goto err_dev_close;
+    }
+#else
+    device_codec_start_rx(dev_codec,0);
+#endif
+
     ret = i2s_test_start_transmitter(info, dev);
     if (ret)
         goto err_dev_close;
@@ -573,6 +615,7 @@ static int i2s_test_start_streaming_transmitter(struct i2s_test_info *info)
 
 err_dev_close:
     device_close(dev);
+    device_close(dev_codec);
 
     return ret;
 }
@@ -713,3 +756,110 @@ err_free_info:
 
     return ret;
 }
+#if 0
+struct gb_audio_widget * find_widget(struct gb_audio_widget *widgets,
+                                     int num_widgets, int id)
+{
+    int i = 0;
+    for (i = 0; i < num_widgets; i++) {
+        if (widgets[i].id == id) {
+            return &widgets[i];
+        }
+    }
+    return NULL;
+}
+
+
+int test_audio_codec(struct device *dev)
+{
+    int ret = 0, i = 0, offset = 0;
+    uint16_t tp_size = 0;
+    struct gb_audio_topology *tp = NULL;
+    struct gb_audio_dai *dais = NULL;
+    struct gb_audio_control *controls = NULL;
+    struct gb_audio_widget *widgets = NULL, *src = NULL, *dst = NULL;
+    struct gb_audio_route *routes = NULL;
+    uint8_t *buf = NULL;
+    struct gb_audio_ctl_elem_value data;
+
+    printf("%s\n",__func__);
+    if (!dev) {
+        return -EINVAL;
+    }
+
+    ret = device_codec_get_topology_size(dev, &tp_size);
+    if (ret) {
+        printf("get topology size fail!\n");
+        return -EINVAL;
+    }
+
+    printf("tp_size = %d\n",tp_size);
+    tp = zalloc(tp_size);
+    if (!tp) {
+        printf("failed to allocate memory. size = %d\n", tp_size);
+        return -EINVAL;
+    }
+
+    ret = device_codec_get_topology(dev, tp);
+    if (ret) {
+        printf("get topology data fail!\n");
+        return -EINVAL;
+    }
+
+    buf = tp->data;
+    offset = 0;
+
+    dais = (struct gb_audio_dai *)(buf + offset);
+    offset += tp->num_dais * sizeof(struct gb_audio_dai);
+
+    controls = (struct gb_audio_control *)(buf + offset);
+    offset += tp->num_controls * sizeof(struct gb_audio_control);
+
+    widgets = (struct gb_audio_widget *)(buf + offset);
+    offset += tp->num_widgets * sizeof(struct gb_audio_widget);
+
+    routes = (struct gb_audio_route *)(buf + offset);
+
+    // list all component
+    for (i = 0; i < tp->num_dais; i++) {
+        printf("dai[%d] : %s\n", i, dais[i].name);
+    }
+    for (i = 0; i < tp->num_controls; i++) {
+        printf("control[%d] : %s\n", i, controls[i].name);
+    }
+    for (i = 0; i < tp->num_widgets; i++) {
+        printf("widget[%d] : %s\n", i, widgets[i].name);
+    }
+    for (i = 0; i < tp->num_routes; i++) {
+        printf("route[%d] : %d -> %d ->%d-%d\n", i, routes[i].source_id,
+             routes[i].control_id, routes[i].destination_id, routes[i].index );
+    }
+
+    // initialize routing table
+    for (i = 0; i < tp->num_routes; i++) {
+        /* enable widget of source */
+        src = find_widget(widgets, tp->num_routes, routes[i].source_id);
+        dst = find_widget(widgets, tp->num_routes, routes[i].destination_id);
+        if (!src || !dst) {
+            /* can't find these widgets, skip it */
+            continue;
+        }
+        printf("Route: %s -> %s [%x-%u]\n", src->name, dst->name,
+               routes[i].control_id, routes[i].index);
+        /* enable widgets of srouce and destination */
+        device_codec_enable_widget(dev, src->id);
+        device_codec_enable_widget(dev, dst->id);
+
+        if (routes[i].control_id != 0xFF) {
+            if (dst->type == GB_AUDIO_WIDGET_TYPE_MUX) {
+                data.value.integer_value = routes[i].index;
+            } else {
+                data.value.integer_value = 1;
+            }
+            device_codec_set_control(dev, routes[i].control_id, 
+                                     routes[i].index, &data);
+        }
+    }
+    return 0;
+}
+#endif
