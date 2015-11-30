@@ -131,6 +131,7 @@ static struct device_resource sdio_board_resources[] = {
 #endif
 
 #ifdef CONFIG_BOARD_HAVE_AUDIO
+#define AUDIO_JACK_DET_PIN          0 /* gpio 0 */
 static struct audio_board_dai audio_board_dai_tbl[] = {
     {
         .data_cport = 6,
@@ -150,6 +151,15 @@ static struct audio_board_bundle audio_board_bundle_tbl[] = {
 struct audio_board_init_data audio_board_init_data_info = {
     .bundle_count   = ARRAY_SIZE(audio_board_bundle_tbl),
     .bundle         = audio_board_bundle_tbl,
+};
+
+static struct device_resource audio_board_resources[] = {
+    {
+        .name  = "jack_detect",
+        .type  = DEVICE_RESOURCE_TYPE_GPIO,
+        .start = AUDIO_JACK_DET_PIN,
+        .count = 1,
+    },
 };
 #endif
 
@@ -211,6 +221,8 @@ static struct device devices[] = {
         .desc           = "Board-specific Audio Information",
         .id             = 0,
         .init_data      = &audio_board_init_data_info,
+        .resources      = audio_board_resources,
+        .resource_count = ARRAY_SIZE(audio_board_resources),
     },
 #endif
 #ifdef CONFIG_BOARD_CODEC_RT5647
