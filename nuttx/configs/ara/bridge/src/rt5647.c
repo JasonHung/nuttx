@@ -1125,7 +1125,7 @@ static int rt5647_get_caps(struct device *dev, unsigned int dai_idx,
 }
 
 /**
- * @brief calculate codec pll setting 
+ * @brief calculate codec pll setting
  *
  * @param dev - pointer to structure of device data
  * @param infreq - mclk frequency
@@ -1133,6 +1133,7 @@ static int rt5647_get_caps(struct device *dev, unsigned int dai_idx,
  * @param code - pll_code structure, included m,n,k,bypass setting
  * @return 0 on success, negative errno on error
  */
+ #if 0
 int rt5647_pll_calc(uint32_t infreq, uint32_t outfreq, struct pll_code *code) {
     int m = 0, n = 0, k = 0, find = 0;
     int t = 0, t1 = 0, out;
@@ -1165,6 +1166,53 @@ findout:
     }
     return -EINVAL;
 }
+#else
+int rt5647_pll_calc(uint32_t infreq, uint32_t outfreq, struct pll_code *code)
+{
+    int n = 0, n1, m = 0, m1, k = 0, bp = 0;
+    int min = 0, tmp = 0, in1 = 0, in2 = 0, out1 = 0;
+
+    if (!code) {
+        return -EINVAL;
+    }
+    k = (outfreq + (infreq / 2)) / infreq;
+
+    min = abs(outfreq - infreq);
+    for (n1 = 0; n1 <= RT5647_PLL_N_CODE_MAX; n1++) {
+        in1 = infreq / (k + 2);
+        out1 = outfreq / (n1 + 2);
+
+        tmp = abs(out1 - in1);
+        if (tmp <= min) {
+            bp = 1;
+            n = n1;
+            if (!tmp) {
+                goto findout;
+            }
+            min = tmp;
+        }
+        for (m1 = 0; m1 <= RT5647_PLL_M_CODE_MAX; m1++) {
+            in2 = in1 / (m1 + 2);
+            tmp = abs(out1 - in2);
+            if (tmp <= min) {
+                bp = 0;
+                n = n1;
+                m = m1;
+                if (!tmp) {
+                    goto findout;
+                }
+                min = tmp;
+            }
+        }
+    }
+findout:
+    code->m = m;
+    code->n = n;
+    code->k = k;
+    code->bp = bp;
+    return 0;
+}
+#endif
 
 /**
  * @brief set audio dai setting
@@ -1318,7 +1366,7 @@ static int rt5647_get_control(struct device *dev, uint8_t control_id,
         aud_ctl = ctl->control;
         if ((aud_ctl->control.id == control_id) && (ctl->index == index)) {
             if (aud_ctl->get) {
-                /* perform get() to get control value or codec register */ 
+                /* perform get() to get control value or codec register */
                 return aud_ctl->get(aud_ctl, value);
             }
         }
@@ -1354,7 +1402,7 @@ static int rt5647_set_control(struct device *dev, uint8_t control_id,
         aud_ctl = ctl->control;
         if ((aud_ctl->control.id == control_id) && (ctl->index == index)) {
             if (aud_ctl->set) {
-                /* perform set() to write control value or codec register */ 
+                /* perform set() to write control value or codec register */
                 return aud_ctl->set(aud_ctl, value);
             }
         }
@@ -1925,7 +1973,7 @@ static int rt5647_audcodec_probe(struct device *dev)
     list_init(&info->control_list);
 
     for (i = 0; i < info->num_controls; i++) {
-        node = zalloc(sizeof(struct control_node)); 
+        node = zalloc(sizeof(struct control_node));
         if (!node) {
             return -ENOMEM;
         }
@@ -1939,7 +1987,7 @@ static int rt5647_audcodec_probe(struct device *dev)
             continue;
         }
         for (j = 0; j < widgets[i].num_controls; j++) {
-            node = zalloc(sizeof(struct control_node)); 
+            node = zalloc(sizeof(struct control_node));
             if (!node) {
                 return -ENOMEM;
             }
