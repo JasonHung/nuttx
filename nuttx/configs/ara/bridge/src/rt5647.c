@@ -678,7 +678,7 @@ static uint32_t rt5647_audcodec_hw_read(uint32_t reg, uint32_t *value)
     }
 
     *value = (uint32_t) (data & 0xFF) << 8 | ((data >> 8) & 0xFF);
-    printf("I2C-R %02X %04X\n", reg, *value);
+    //printf("I2C-R %02X %04X\n", reg, *value);
     return 0;
 }
 
@@ -741,15 +741,23 @@ const uint8_t rt5647_reg_map[] = {
 
 static void rt5647_dump_register(void)
 {
-    int i = 0;
+    int i = 0, j = 0, k = 0;
     uint32_t value = 0;
+    uint8_t bstr[20];
 
     printf("\nDump RT5647 register:\n");
     for (i = 0; i < ARRAY_SIZE(rt5647_reg_map); i++) {
         if (rt5647_audcodec_hw_read(rt5647_reg_map[i], &value)) {
             continue;
         }
-        printf("REG[%02X] = %04X\n", rt5647_reg_map[i], value);
+        bstr[19] = 0;
+        for (j = 0, k = 0; j < 16; j++) {
+            bstr[k++] = (value & (1 << (15 - j)))? 0x31: 0x30;
+            if (j == 3 || j == 7 || j == 11) {
+                bstr[k++] = 0x20;
+            }
+        }
+        printf("REG[%02X] = %04X, %s\n", rt5647_reg_map[i], value, bstr);
     }
 }
 
