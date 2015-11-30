@@ -28,6 +28,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 #include <errno.h>
 #include <pthread.h>
 #include <nuttx/lib.h>
@@ -672,6 +673,7 @@ static uint32_t rt5647_audcodec_hw_read(uint32_t reg, uint32_t *value)
     }
 
     *value = (uint32_t) (data & 0xFF) << 8 | ((data >> 8) & 0xFF);
+    printf("I2C-R %02X %04X\n", reg, *value);
     return 0;
 }
 
@@ -716,6 +718,7 @@ static uint32_t rt5647_audcodec_hw_write(uint32_t reg, uint32_t value)
     if (I2C_TRANSFER(info->i2c, msg, 1)) {
         return -EIO;
     }
+    printf("I2C-W %02X %04X\n", reg, value);
     return 0;
 }
 
@@ -1803,11 +1806,14 @@ static int rt5647_speaker_event(struct device *dev, uint8_t widget_id,
 static int rt5647_audcodec_open(struct device *dev)
 {
     struct rt5647_info *info = NULL;
+#if 0
     struct device *audio_board_dev = NULL;
     struct device_resource *r;
+#endif
     int ret = 0, i = 0;
     uint32_t id = 0;
 
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev)) {
         return -EINVAL;
     }
@@ -1827,7 +1833,7 @@ static int rt5647_audcodec_open(struct device *dev)
         /* can't read codec register or vendor id isn't correct */
         return -EIO;
     }
-
+#if 0
     /* get jack-detect gpio pin from audio board resource area*/
     audio_board_dev = device_open(DEVICE_TYPE_AUDIO_BOARD_HW, 0);
     if (!audio_board_dev) {
@@ -1852,7 +1858,7 @@ static int rt5647_audcodec_open(struct device *dev)
                        (void*)dev) != 0) {
         return -EIO;
     }
-
+#endif
     /* codec power on sequence */
     audcodec_write(RT5647_RESET, 0);    /* software reset */
 
@@ -1879,6 +1885,7 @@ static void rt5647_audcodec_close(struct device *dev)
     struct audio_widget *widget = NULL;
     int i = 0;
 
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev)) {
         return;
     }
@@ -1910,11 +1917,11 @@ static void rt5647_audcodec_close(struct device *dev)
         rt5647_disable_widget(dev,widget->widget.id);
         widget++;
     }
-
+#if 0
     /* uninitialize GPIO pin */
     gpio_unmask_irq(info->jack_detect);
     gpio_deactivate(info->jack_detect);
-
+#endif
     /* clear open state */
     info->state &= ~(CODEC_DEVICE_FLAG_OPEN | CODEC_DEVICE_FLAG_CONFIG);
 }
@@ -1938,6 +1945,7 @@ static int rt5647_audcodec_probe(struct device *dev)
     struct audio_widget *widgets = NULL;
     int i = 0, j = 0;
 
+    printf("%s\n", __func__);
     if (!dev) {
         return -EINVAL;
     }
@@ -2034,6 +2042,7 @@ static void rt5647_audcodec_remove(struct device *dev)
     struct list_head *iter, *iter_next;
     struct control_node *ctlnode = NULL;
 
+    printf("%s\n", __func__);
     if (!dev || !device_get_private(dev)) {
         return;
     }
