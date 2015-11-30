@@ -29,12 +29,15 @@
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 #include <nuttx/lib.h>
 #include <nuttx/util.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/i2c.h>
 #include <nuttx/list.h>
+#include <nuttx/gpio.h>
+#include <nuttx/device_audio_board.h>
 #include "audcodec.h"
 #include "rt5647.h"
 
@@ -50,8 +53,7 @@
 #define CODEC_DEVICE_FLAG_RX_START        BIT(4)  /* device rx started */
 #define CODEC_DEVICE_FLAG_CLOSE           BIT(5)  /* device closed */
 
-static int rt5647_speaker_event(struct device *dev, uint8_t widget_id,
-                                uint8_t event);
+#define BUTTON_DETECT_INTERVAL            100     /* 100ms */
 
 static struct device *codec_dev = NULL;
 
@@ -94,6 +96,18 @@ struct pll_code {
 };
 
 /**
+ * wait queue
+ */
+struct codec_waitq {
+    /** thread exit flag */
+    int abort;
+    /** condition object for wait event */
+    pthread_cond_t cond;
+    /** mutex object for wait event */
+    pthread_mutex_t mutex;
+};
+
+/**
  * rt5647 private information
  */
 struct rt5647_info {
@@ -133,29 +147,42 @@ struct rt5647_info {
     /** rx delay count */
     uint32_t rx_delay;
     /** rx callback event */
-    device_codec_event_callback *rx_callback;
+    device_codec_event_callback rx_callback;
     /** rx callback event argument */
     void* rx_callback_arg;
     /** tx delay count */
     uint32_t tx_delay;
     /** tx callback event */
-    device_codec_event_callback *tx_callback;
+    device_codec_event_callback tx_callback;
     /** tx callback event argument */
     void* tx_callback_arg;
     /** jack callback event */
-    device_codec_jack_event_callback *jack_event_callback;
+    device_codec_jack_event_callback jack_event_callback;
     /** jack callback event argument */
     void* jack_event_callback_arg;
     /** button callback event */
-    device_codec_button_event_callback *button_event_callback;
+    device_codec_button_event_callback button_event_callback;
     /** button callback event argument */
     void* button_event_callback_arg;
+
+    /** audio jack detect pin */
+    int jack_detect;
+    int jack_state;
+
+    /** button thread handle */
+    pthread_t btn_thread;
+    /** wait queue for button trigger event*/
+    struct codec_waitq wq;
 
     /** codec hardware access function for read */
     uint32_t (*codec_read)(uint32_t reg, uint32_t *value);
     /** codec hardware access function for write */
     uint32_t (*codec_write)(uint32_t reg, uint32_t value);
 };
+
+static int rt5647_speaker_event(struct device *dev, uint8_t widget_id,
+                                uint8_t event);
+static int rt5647_button_detect(struct rt5647_info *info);
 
 /**
  * codec register initialization table
@@ -689,6 +716,174 @@ static uint32_t rt5647_audcodec_hw_write(uint32_t reg, uint32_t value)
     if (I2C_TRANSFER(info->i2c, msg, 1)) {
         return -EIO;
     }
+    return 0;
+}
+
+int rt5647_jack_detect(struct rt5647_info *info, int jack_insert)
+{
+    if (!info) {
+        return -EINVAL;
+    }
+
+    info->jack_state = jack_insert;
+    if (jack_insert) {
+        /* TODO: enable some register */
+        if (info->jack_event_callback) {
+            /* TODO: provide widget id and type */
+            info->jack_event_callback(0, 0, DEVICE_CODEC_JACK_EVENT_INSERTION,
+                                      info->jack_event_callback_arg);
+        }
+        /* TODO: enable button detect irq and setting */
+        /* notify button detect thread */
+        pthread_cond_signal(&info->wq.cond);
+    } else {
+        /* TODO: disable some register */
+        if (info->jack_event_callback) {
+            /* TODO: provide widget id and type */
+            info->jack_event_callback(0,0,
+                                      DEVICE_CODEC_JACK_EVENT_REMOVAL,
+                                      info->jack_event_callback_arg);
+        }
+    }
+    return 0;
+}
+
+static int rt5647_button_detect(struct rt5647_info *info)
+{
+    int status = 0;
+    if (!info) {
+        return -EINVAL;
+    }
+
+    /* TODO: check button status */
+    if (status) {
+        /* TODO: enable some register */
+        if (info->jack_event_callback) {
+            /* TODO: provide widget id and type */
+            info->button_event_callback(0, 0, DEVICE_CODEC_BUTTON_EVENT_PRESS,
+                                      info->button_event_callback_arg);
+        }
+        /* TODO: enable button detect irq and setting */
+        /* notify button detect thread */
+        pthread_cond_signal(&info->wq.cond);
+    } else {
+        /* TODO: disable some register */
+        if (info->button_event_callback) {
+            /* TODO: provide widget id and type */
+            info->button_event_callback(0,0,
+                                      DEVICE_CODEC_BUTTON_EVENT_RELEASE,
+                                      info->button_event_callback_arg);
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief audio jack detection irq function
+ *
+ * @param irq - irq number
+ * @param context - pointer to structure of device data
+ */
+static int rt5647_jack_detect_irq(int irq, void *context)
+{
+    struct device *dev = context;
+    struct rt5647_info *info = NULL;
+    int jack_status = 0;
+
+    /* check input parameters */
+    if (!dev || !device_get_private(dev)) {
+        return ERROR;
+    }
+    info = device_get_private(dev);
+
+    /* not using rt5647 JD feature, using a gpio detection */
+    jack_status = gpio_get_value(info->jack_detect);
+    rt5647_jack_detect(info, jack_status);
+    return OK;
+}
+
+/**
+ * @brief initialize audio jack detection
+ *
+ * @param info - pointer to structure of rt5647_info data
+ */
+int audcodec_jack_detect_init(struct rt5647_info *info)
+{
+    struct device *audio_board_dev = NULL;
+    struct device_resource *r;
+
+    if (!info) {
+        return -EINVAL;
+    }
+
+    /* get jack-detect gpio pin from audio board resource area*/
+    audio_board_dev = device_open(DEVICE_TYPE_AUDIO_BOARD_HW, 0);
+    if (!audio_board_dev) {
+        return -EINVAL;
+    }
+
+    r = device_resource_get_by_name(audio_board_dev, DEVICE_RESOURCE_TYPE_GPIO,
+                                    "jack_detect");
+    if (!r) {
+        return -EINVAL;
+    }
+    info->jack_detect = r->start;
+    device_close(audio_board_dev);
+
+    /* initialize GPIO pin */
+    if (info->jack_detect >= gpio_line_count()) {
+        return -EINVAL;
+    }
+    gpio_activate(info->jack_detect);
+    gpio_direction_in(info->jack_detect);
+    gpio_mask_irq(info->jack_detect);
+    set_gpio_triggering(info->jack_detect, IRQ_TYPE_EDGE_BOTH);
+    gpio_irqattach(info->jack_detect, rt5647_jack_detect_irq);
+    return 0;
+}
+
+/**
+ * @brief button detect thread function
+ *
+ * @param context - pointer to structure of device data
+ */
+void button_detect_thread(void *context)
+{
+    struct device *dev = context;
+    struct rt5647_info *info = NULL;
+    struct timespec timeout = {.tv_nsec = BUTTON_DETECT_INTERVAL * 1000000 };
+
+    /* check input parameters */
+    if (!dev || !device_get_private(dev)) {
+        return;
+    }
+    info = device_get_private(dev);
+
+    pthread_mutex_lock(&info->wq.mutex);
+
+    while (1) {
+        /* wait for gpio trigger event */
+        if (info->jack_state) {
+            pthread_cond_timedwait(&info->wq.cond, &info->wq.mutex, &timeout);
+        } else {
+            pthread_cond_wait(&info->wq.cond, &info->wq.mutex);
+        }
+        if (info->wq.abort) {
+            /* exit hid_thread_func loop */
+            break;
+        }
+        rt5647_button_detect(info);
+    }
+    pthread_mutex_unlock(&info->wq.mutex);
+}
+
+/**
+ * @brief initialize audio button detection
+ *
+ * @param info - pointer to structure of rt5647_info data
+ */
+int audcodec_button_detect_init(struct rt5647_info *info)
+{
     return 0;
 }
 
@@ -1346,7 +1541,7 @@ static int rt5647_stop_tx(struct device *dev, uint32_t dai_idx)
  * @return 0 on success, negative errno on error
  */
 static int rt5647_register_tx_callback(struct device *dev,
-                                       device_codec_event_callback *callback,
+                                       device_codec_event_callback callback,
                                        void *arg)
 {
     struct rt5647_info *info = NULL;
@@ -1453,7 +1648,7 @@ static int rt5647_stop_rx(struct device *dev, uint32_t dai_idx)
  * @return 0 on success, negative errno on error
  */
 static int rt5647_register_rx_callback(struct device *dev,
-                                       device_codec_event_callback *callback,
+                                       device_codec_event_callback callback,
                                        void *arg)
 {
     struct rt5647_info *info = NULL;
@@ -1476,7 +1671,7 @@ static int rt5647_register_rx_callback(struct device *dev,
  * @return 0 on success, negative errno on error
  */
 static int rt5647_register_jack_event_callback(struct device *dev,
-                                    device_codec_jack_event_callback *callback,
+                                    device_codec_jack_event_callback callback,
                                     void *arg)
 {
     struct rt5647_info *info = NULL;
@@ -1499,7 +1694,7 @@ static int rt5647_register_jack_event_callback(struct device *dev,
  * @return 0 on success, negative errno on error
  */
 static int rt5647_register_button_event_callback(struct device *dev,
-                                  device_codec_button_event_callback *callback,
+                                  device_codec_button_event_callback callback,
                                   void *arg)
 {
     struct rt5647_info *info = NULL;
@@ -1545,6 +1740,8 @@ static int rt5647_speaker_event(struct device *dev, uint8_t widget_id,
 static int rt5647_audcodec_open(struct device *dev)
 {
     struct rt5647_info *info = NULL;
+    struct device *audio_board_dev = NULL;
+    struct device_resource *r;
     int ret = 0, i = 0;
     uint32_t id = 0;
 
@@ -1565,6 +1762,31 @@ static int rt5647_audcodec_open(struct device *dev)
     /* verify codec id */
     if (audcodec_read(RT5647_VENDOR_ID, &id) || (id != RT5647_DEFAULT_VID)) {
         /* can't read codec register or vendor id isn't correct */
+        return -EIO;
+    }
+
+    /* get jack-detect gpio pin from audio board resource area*/
+    audio_board_dev = device_open(DEVICE_TYPE_AUDIO_BOARD_HW, 0);
+    if (!audio_board_dev) {
+        return -EINVAL;
+    }
+
+    r = device_resource_get_by_name(dev, DEVICE_RESOURCE_TYPE_GPIO,
+                                    "jack_detect");
+    if (!r) {
+        return -EINVAL;
+    }
+    info->jack_detect = r->start;
+    device_close(audio_board_dev);
+
+    /* initialize waitqueue */
+    info->wq.abort = 0;
+    pthread_mutex_init(&info->wq.mutex, NULL);
+    pthread_cond_init(&info->wq.cond, NULL);
+
+    /* create thread to send demo report data */
+    if (pthread_create(&info->btn_thread, NULL, (void*)button_detect_thread,
+                       (void*)dev) != 0) {
         return -EIO;
     }
 
@@ -1625,6 +1847,10 @@ static void rt5647_audcodec_close(struct device *dev)
         rt5647_disable_widget(dev,widget->widget.id);
         widget++;
     }
+
+    /* uninitialize GPIO pin */
+    gpio_unmask_irq(info->jack_detect);
+    gpio_deactivate(info->jack_detect);
 
     /* clear open state */
     info->state &= ~(CODEC_DEVICE_FLAG_OPEN | CODEC_DEVICE_FLAG_CONFIG);
@@ -1723,6 +1949,7 @@ static int rt5647_audcodec_probe(struct device *dev)
             list_add(&info->control_list, &node->list);
         }
     }
+
     info->state |= CODEC_DEVICE_FLAG_PROBE;
     return 0;
 }
@@ -1752,10 +1979,12 @@ static void rt5647_audcodec_remove(struct device *dev)
     if (info->state & CODEC_DEVICE_FLAG_OPEN) {
         rt5647_audcodec_close(dev);
     }
+
     if (info->i2c) {
         up_i2cuninitialize(info->i2c);
         info->i2c = NULL;
     }
+
     info->codec_read = NULL;
     info->codec_write = NULL;
     info->state = 0;

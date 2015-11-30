@@ -78,7 +78,7 @@ typedef int (*device_codec_event_callback)(unsigned int dai_idx,
                                            enum device_codec_event event,
                                            void *arg);
 
-enum {
+enum device_codec_jack_event {
     DEVICE_CODEC_JACK_EVENT_INVALID,
     DEVICE_CODEC_JACK_EVENT_INSERTION,
     DEVICE_CODEC_JACK_EVENT_REMOVAL,
@@ -89,7 +89,7 @@ typedef int (*device_codec_jack_event_callback)(uint8_t widget_id,
                                             enum device_codec_jack_event event,
                                             void *arg);
 
-enum {
+enum device_codec_button_event {
     DEVICE_CODEC_BUTTON_EVENT_INVALID,
     DEVICE_CODEC_BUTTON_EVENT_PRESS,
     DEVICE_CODEC_BUTTON_EVENT_RELEASE,
@@ -118,19 +118,19 @@ struct device_codec_type_ops {
     int (*start_tx)(struct device *dev, uint32_t dai_idx);
     int (*stop_tx)(struct device *dev, uint32_t dai_idx);
     int (*register_tx_callback)(struct device *dev,
-                                device_codec_event_callback *callback,
+                                device_codec_event_callback callback,
                                 void *arg);
     int (*get_rx_delay)(struct device *dev, uint32_t *delay);
     int (*start_rx)(struct device *dev, uint32_t dai_idx);
     int (*stop_rx)(struct device *dev, uint32_t dai_idx);
     int (*register_rx_callback)(struct device *dev,
-                                device_codec_event_callback *callback,
+                                device_codec_event_callback callback,
                                 void *arg);
     int (*register_jack_event_callback)(struct device *dev,
-                                  device_codec_jack_event_callback *callback,
+                                  device_codec_jack_event_callback callback,
                                   void *arg);
     int (*register_button_event_callback)(struct device *dev,
-                                  device_codec_button_event_callback *callback,
+                                  device_codec_button_event_callback callback,
                                   void *arg);
 };
 
