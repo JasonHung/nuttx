@@ -37,7 +37,7 @@
 #include <nuttx/wqueue.h>
 #include <nuttx/list.h>
 
-#include <nuttx/audio.h>
+//#include <nuttx/audio.h>
 #include <nuttx/device_i2s.h>
 #include <nuttx/device_codec.h>
 #include "i2s_test.h"

@@ -31,6 +31,8 @@
 #ifndef __DAI_COMMON_H
 #define __DAI_COMMON_H
 
+#include "../../drivers/greybus/audio-gb.h"
+
 #define DEVICE_DAI_PROTOCOL_PCM                         BIT(0)
 #define DEVICE_DAI_PROTOCOL_I2S                         BIT(1)
 #define DEVICE_DAI_PROTOCOL_LR_STEREO                   BIT(2)
