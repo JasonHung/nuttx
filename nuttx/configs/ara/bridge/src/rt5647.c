@@ -218,6 +218,11 @@ struct rt5647_reg rt5647_init_regs[] = {
     { RT5647_STO1_ADC_DIGI_MIXER, 0x7060 },
 
     { RT5647_STO1_ADC_DIGI_VOL, 0xAFAF },/* Mute STO1 ADC for depop, Digital Input Gain */
+
+    /* for jason testing */
+    { RT5647_PWR_MGT_2, 0x0E00 },   // filter power // jason
+    { RT5647_PWR_MGT_4, 0x0200 },   // pll power // jason
+    { RT5647_PWR_MGT_5, 0x3002 },   // LDO2 power control // jason
 };
 
 /**
