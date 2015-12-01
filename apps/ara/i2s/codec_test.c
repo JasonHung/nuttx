@@ -354,7 +354,7 @@ static int enable_codec_speaker(struct i2s_test_info *info,
     ret = device_codec_get_topology(dev, tp);
     if (ret) {
         printf("get topology data fail!\n");
-        return -EINVAL;
+        goto codec_err;
     }
 
     buf = tp->data;
@@ -461,6 +461,7 @@ static int enable_codec_speaker(struct i2s_test_info *info,
     }
 
 codec_err:
+    free(tp);
     return ret;
 }
 
