@@ -137,6 +137,21 @@ static int find_common_dai_settings(struct i2s_test_info *info,
 
     /* get compatible set of dai settings */
     compatible_dai.protocol = i2s_dai.protocol & codec_dai.protocol;
+    if(info->is_i2s)
+    {
+        if(!(compatible_dai.protocol | DEVICE_DAI_PROTOCOL_I2S)) {
+            fprintf(stderr, "I2S requested but is not a compatible protocol\n");
+            goto dev_close;
+        }
+        compatible_dai.protocol = DEVICE_DAI_PROTOCOL_I2S;
+    } else {
+        if(!(compatible_dai.protocol | DEVICE_DAI_PROTOCOL_LR_STEREO)) {
+            fprintf(stderr, "LRStereo requested but is not a compatible protocol\n");
+            goto dev_close;
+        }
+        compatible_dai.protocol = DEVICE_DAI_PROTOCOL_LR_STEREO;
+    }
+
     compatible_dai.wclk_polarity = i2s_dai.wclk_polarity & codec_dai.wclk_polarity;
     compatible_dai.wclk_change_edge = i2s_dai.wclk_change_edge & codec_dai.wclk_change_edge;
     compatible_dai.data_rx_edge = i2s_dai.data_rx_edge & codec_dai.data_rx_edge;
@@ -234,11 +249,11 @@ static int set_common_dai_settings(struct i2s_test_info *info,
             goto dev_close;
         }
 
-        ret = device_codec_set_config(i2s_dev,
-                                   0,
-                                   DEVICE_DAI_ROLE_SLAVE,
-                                   &codec_test_pcm,
-                                   &compatible_dai);
+        ret = device_codec_set_config(codec_dev,
+                                      0,
+                                      DEVICE_DAI_ROLE_SLAVE,
+                                      &codec_test_pcm,
+                                      &compatible_dai);
         if (ret) {
             fprintf(stderr, "set Codec configuration failed: %d\n", ret);
             goto dev_close;
@@ -253,11 +268,11 @@ static int set_common_dai_settings(struct i2s_test_info *info,
             goto dev_close;
         }
 
-        ret = device_codec_set_config(i2s_dev,
-                                   0,
-                                   DEVICE_DAI_ROLE_MASTER,
-                                   &codec_test_pcm,
-                                   &compatible_dai);
+        ret = device_codec_set_config(codec_dev,
+                                      0,
+                                      DEVICE_DAI_ROLE_MASTER,
+                                      &codec_test_pcm,
+                                      &compatible_dai);
         if (ret) {
             fprintf(stderr, "set Codec configuration failed: %d\n", ret);
             goto dev_close;
@@ -275,7 +290,7 @@ static int stream_i2s_to_codec(struct i2s_test_info *info,
 {
     int ret = OK;
 
-    ret = device_codec_start_tx(codec_dev, 0);
+    ret = device_codec_start_rx(codec_dev, 0);
     if (ret)
         goto err_codec;
 
@@ -292,7 +307,7 @@ static int stream_i2s_to_codec(struct i2s_test_info *info,
     i2s_test_stop_transmitter(i2s_dev);
 
 err_i2s:
-    device_codec_stop_tx(codec_dev, 0);
+    device_codec_stop_rx(codec_dev, 0);
 
 err_codec:
 
