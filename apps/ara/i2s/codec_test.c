@@ -240,6 +240,31 @@ static int set_common_dai_settings(struct i2s_test_info *info,
     int ret = OK;
 
     if (i2s_is_mclk_master) {
+
+// for testing
+        compatible_dai.data_tx_edge = DEVICE_DAI_EDGE_RISING;
+        compatible_dai.wclk_change_edge = DEVICE_DAI_EDGE_RISING;
+
+        ret = device_i2s_set_config(i2s_dev,
+                                   DEVICE_DAI_ROLE_MASTER,
+                                   &i2s_test_pcm,
+                                   &compatible_dai);
+        if (ret) {
+            fprintf(stderr, "set I2S configuration failed: %d\n", ret);
+            goto dev_close;
+        }
+
+        compatible_dai.data_rx_edge = DEVICE_DAI_EDGE_RISING;
+        compatible_dai.wclk_change_edge = DEVICE_DAI_EDGE_RISING;
+
+        ret = device_codec_set_config(codec_dev,
+                                      0,
+                                      DEVICE_DAI_ROLE_SLAVE,
+                                      &codec_test_pcm,
+                                      &compatible_dai);
+// for testing
+
+#if 0
         ret = device_i2s_set_config(i2s_dev,
                                    DEVICE_DAI_ROLE_MASTER,
                                    &i2s_test_pcm,
@@ -258,6 +283,7 @@ static int set_common_dai_settings(struct i2s_test_info *info,
             fprintf(stderr, "set Codec configuration failed: %d\n", ret);
             goto dev_close;
         }
+#endif
     } else if (codec_is_mclk_master) {
         ret = device_i2s_set_config(i2s_dev,
                                    DEVICE_DAI_ROLE_SLAVE,
@@ -293,6 +319,7 @@ static int stream_i2s_to_codec(struct i2s_test_info *info,
     ret = device_codec_start_rx(codec_dev, 0);
     if (ret)
         goto err_codec;
+
 
     ret = i2s_test_start_transmitter(info, i2s_dev);
     if (ret)
@@ -385,7 +412,7 @@ static int enable_codec_speaker(struct i2s_test_info *info,
     offset += tp->num_widgets * sizeof(struct gb_audio_widget);
 
     routes = (struct gb_audio_route *)(buf + offset);
-
+#if 0
     // list all component
     for (i = 0; i < tp->num_dais; i++) {
         printf("dai[%d] : %s\n", i, dais[i].name);
@@ -400,7 +427,7 @@ static int enable_codec_speaker(struct i2s_test_info *info,
         printf("route[%d] : %d -> %d ->%d-%d\n", i, routes[i].source_id,
              routes[i].control_id, routes[i].destination_id, routes[i].index );
     }
-
+#endif
     // initialize routing table
     for (i = 0; i < tp->num_routes; i++) {
         /* enable widget of source */
@@ -422,14 +449,14 @@ static int enable_codec_speaker(struct i2s_test_info *info,
             } else {
                 values[0].value.integer_value = 1;
             }
-            device_codec_set_control(dev, routes[i].control_id, 
+            device_codec_set_control(dev, routes[i].control_id,
                                      routes[i].index, values);
         }
     }
 
     // enable audio controls
-    values[0].value.integer_value = 8;
-    values[1].value.integer_value = 8;
+    values[0].value.integer_value = 4;
+    values[1].value.integer_value = 4;
     ret = device_codec_set_control(dev,
                                    RT5647_CTL_SPKOUT_VOL,
                                    0,  //no parent widget

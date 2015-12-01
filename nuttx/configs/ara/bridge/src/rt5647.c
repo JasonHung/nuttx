@@ -723,7 +723,7 @@ static uint32_t rt5647_audcodec_hw_write(uint32_t reg, uint32_t value)
     if (I2C_TRANSFER(info->i2c, msg, 1)) {
         return -EIO;
     }
-    printf("I2C-W %02X %04X\n", reg, value);
+    //printf("I2C-W %02X %04X\n", reg, value);
     return 0;
 }
 
@@ -1329,6 +1329,8 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     if (ret) {
         return -EINVAL;
     }
+    printf("sysclk:%d, ratefreq:%d, mclk_freq:%u\n", sysclk, ratefreq,
+           dai->mclk_freq);
 
     /* setup codec hw */
     if (clk_role & DEVICE_DAI_ROLE_SLAVE) {
@@ -1349,6 +1351,7 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
         return -EINVAL;
     }
 
+    printf("numbits = %d\n",numbits);
     switch (numbits) {
     case 8:
         format |= RT5647_I2S_LEN_8;
@@ -1367,7 +1370,9 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     }
 
     // write clock setting
-    value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_MCLK; /* MCLK->PLL->SYSCLK */
+    //value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_MCLK; /* MCLK->PLL->SYSCLK */
+    //jason testing
+    value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_BCLK1; /* BCLK1->PLL->SYSCLK */
     mask = RT5647_SYSCLK_S_MASK | RT5647_PLL_S_MASK;
     audcodec_update(RT5647_GLOBAL_CLOCK, value, mask);
 
@@ -1380,7 +1385,9 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
             (code.bp << RT5647_PLL_M_BYPASS_SFT);
     audcodec_write(RT5647_PLL2, value);
 
+    printf("m:%d, n:%d, k:%d, bp:%d\n",code.m, code.n, code.k, code.bp);
     if (dai_idx == 0) { /* i2s1 */
+        //format |= RT5647_I2S_INV_BCLK;//for testing
         audcodec_write(RT5647_I2S1_CTRL, format);
     }
 
