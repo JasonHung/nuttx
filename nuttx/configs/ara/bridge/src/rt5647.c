@@ -1904,10 +1904,21 @@ static int rt5647_audcodec_open(struct device *dev)
     /* codec power on sequence */
     audcodec_write(RT5647_RESET, 0);    /* software reset */
 
+	audcodec_update(RT5647_PWR_MGT_3,
+		(1 << RT5647_PWR3_VREF1_EN) | (1 << RT5647_PWR3_MBIAS_EN) |
+		(1 << RT5647_PWR3_BGBIAS_EN) | (1 << RT5647_PWR3_VREF2_EN),
+		(1 << RT5647_PWR3_VREF1_EN) | (1 << RT5647_PWR3_MBIAS_EN) |
+		(1 << RT5647_PWR3_BGBIAS_EN) | (1 << RT5647_PWR3_VREF2_EN));
+	usleep(10000);
+	audcodec_update(RT5647_PWR_MGT_3,
+		(1 << RT5647_PWR3_FASTB1_EN) | (1 << RT5647_PWR3_FASTB2_EN),
+		(1 << RT5647_PWR3_FASTB1_EN) | (1 << RT5647_PWR3_FASTB2_EN));
+
     /* initialize audio codec */
     for (i = 0; i < info->num_regs; i++) {
         audcodec_write(info->init_regs[i].reg , info->init_regs[i].val);
     }
+    audcodec_update(RT5647_PWR_MGT_3, 0x02, RT5647_PWR3_LDO1_MASK);
     return ret;
 }
 
