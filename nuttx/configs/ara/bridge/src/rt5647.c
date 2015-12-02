@@ -223,6 +223,8 @@ struct rt5647_reg rt5647_init_regs[] = {
     { RT5647_PWR_MGT_2, 0x0E00 },   // filter power // jason
     { RT5647_PWR_MGT_4, 0x0200 },   // pll power // jason
     { RT5647_PWR_MGT_5, 0x3002 },   // LDO2 power control // jason
+    /* hack, Haptic generator control for testing */
+    { RT5647_HAPTIC_CTRL1, 0x7888 }, // AC and 888Hz
 };
 
 /**
@@ -535,7 +537,8 @@ audio_route rt5647_routes[] = {
       RT5647_CTL_DAC2_LSRC, 0 },
     // IF1 DAC2 R
     { RT5647_WIDGET_IF1_DAC2R, RT5647_WIDGET_DACR2_MUX,
-      RT5647_CTL_DAC2_RSRC, 0 },
+      //RT5647_CTL_DAC2_RSRC, 0 },
+      RT5647_CTL_DAC2_RSRC, 4 }, // hack, route to haptic control
 
     // DAC L2 Mux
     { RT5647_WIDGET_DACL2_MUX, RT5647_WIDGET_DACL2_VOL, NOCONTROL, 0 },
