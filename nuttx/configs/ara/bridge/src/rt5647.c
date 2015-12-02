@@ -55,6 +55,7 @@
 #define CODEC_DEVICE_FLAG_CLOSE           BIT(5)  /* device closed */
 
 #define BUTTON_DETECT_INTERVAL            100     /* 100ms */
+#define OC_DETECT_INTERVAL                100     /* 100ms */
 
 static struct device *codec_dev = NULL;
 
@@ -121,6 +122,7 @@ struct rt5647_info {
     /** device state */
     int state;
 
+    int tdm_en;
     /** rt5647 codec initialization array */
     struct rt5647_reg *init_regs;
     /** number of codec initialization array */
@@ -175,6 +177,11 @@ struct rt5647_info {
     /** wait queue for button trigger event*/
     struct codec_waitq wq;
 
+    /** button thread handle */
+    pthread_t oc_thread;
+    /** wait queue for oc detect event*/
+    struct codec_waitq wq_oc;
+
     /** codec hardware access function for read */
     uint32_t (*codec_read)(uint32_t reg, uint32_t *value);
     /** codec hardware access function for write */
@@ -225,6 +232,7 @@ struct rt5647_reg rt5647_init_regs[] = {
     { RT5647_PWR_MGT_5, 0x3002 },   // LDO2 power control // jason
     /* hack, Haptic generator control for testing */
     //{ RT5647_HAPTIC_CTRL1, 0x6888 }, // AC and 888Hz
+    { RT5647_CLS_D_AMP, 0xA0E8 },   // enable auto powerdown when oc
 };
 
 /**
@@ -923,6 +931,47 @@ void button_detect_thread(void *context)
 }
 
 /**
+ * @brief over current detect thread function
+ *
+ * @param context - pointer to structure of device data
+ */
+void oc_detect_thread(void *context)
+{
+    struct device *dev = context;
+    struct rt5647_info *info = NULL;
+    uint32_t irq2 = 0, irq3 = 0;
+
+    /* check input parameters */
+    if (!dev || !device_get_private(dev)) {
+        return;
+    }
+    info = device_get_private(dev);
+
+    pthread_mutex_lock(&info->wq_oc.mutex);
+    printf("%s\n",__func__);
+    while (1) {
+        /* check the oc irq register */
+        rt5647_audcodec_hw_read(RT5647_IRQ_CTRL_2, &irq2);
+        rt5647_audcodec_hw_read(RT5647_IRQ_CTRL_3, &irq3);
+
+        if (irq2 & 0x7) {
+            printf("Class-D amp over current!!\n");
+        }
+        if (irq3 & (1 << 11)) {
+            printf("Class-D amp over temperature!!\n");
+        }
+
+        usleep(OC_DETECT_INTERVAL * 1000);
+
+        if (info->wq_oc.abort) {
+            /* exit hid_thread_func loop */
+            break;
+        }
+    }
+    pthread_mutex_unlock(&info->wq_oc.mutex);
+}
+
+/**
  * @brief initialize audio button detection
  *
  * @param info - pointer to structure of rt5647_info data
@@ -1345,6 +1394,8 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
         break;
     case DEVICE_DAI_PROTOCOL_I2S:
         format |= RT5647_I2S_FORMAT_I2S;
+        if (info->tdm_en) {
+        }
         break;
     case DEVICE_DAI_PROTOCOL_LR_STEREO:
         format |= RT5647_I2S_FORMAT_LEFT_J;
@@ -1908,6 +1959,17 @@ static int rt5647_audcodec_open(struct device *dev)
     /* codec power on sequence */
     audcodec_write(RT5647_RESET, 0);    /* software reset */
 
+    /* initialize ov waitqueue */
+    info->wq_oc.abort = 0;
+    pthread_mutex_init(&info->wq_oc.mutex, NULL);
+    pthread_cond_init(&info->wq_oc.cond, NULL);
+
+    /* create thread to send demo report data */
+    if (pthread_create(&info->oc_thread, NULL, (void*)oc_detect_thread,
+                       (void*)dev) != 0) {
+        return -EIO;
+    }
+
 	audcodec_update(RT5647_PWR_MGT_3,
 		(1 << RT5647_PWR3_VREF1_EN) | (1 << RT5647_PWR3_MBIAS_EN) |
 		(1 << RT5647_PWR3_BGBIAS_EN) | (1 << RT5647_PWR3_VREF2_EN),
@@ -1974,6 +2036,17 @@ static void rt5647_audcodec_close(struct device *dev)
         rt5647_disable_widget(dev,widget->widget.id);
         widget++;
     }
+
+    if (info->oc_thread != (pthread_t)0) {
+        info->wq_oc.abort = 1;
+        pthread_cond_signal(&info->wq_oc.cond);
+        /* wait for thread completed */
+        pthread_join(info->oc_thread, NULL);
+    }
+
+    pthread_cond_destroy(&info->wq_oc.cond);
+    pthread_mutex_destroy(&info->wq_oc.mutex);
+
 #if 0
     /* uninitialize GPIO pin */
     gpio_unmask_irq(info->jack_detect);
