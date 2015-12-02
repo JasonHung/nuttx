@@ -410,7 +410,8 @@ static int enable_codec_speaker(struct i2s_test_info *info,
             /* can't find these widgets, skip it */
             continue;
         }
-        printf("Route: %s -> %s [%x-%u]\n", src->name, dst->name,
+        printf("Route: %s[%d] -> %s[%d] [%x-%u]\n", src->name,
+               routes[i].source_id, dst->name, routes[i].destination_id,
                routes[i].control_id, routes[i].index);
         /* enable widgets of srouce and destination */
         device_codec_enable_widget(dev, src->id);
@@ -423,7 +424,7 @@ static int enable_codec_speaker(struct i2s_test_info *info,
                 values[0].value.integer_value = 1;
             }
             device_codec_set_control(dev, routes[i].control_id, 
-                                     routes[i].index, values);
+                                     0, values);
         }
     }
 
@@ -438,8 +439,8 @@ static int enable_codec_speaker(struct i2s_test_info *info,
         fprintf(stderr, "RT5647_CTL_SPKOUT_VOL did not work: error %d\n",ret);
         goto codec_err;
     }
-    values[0].value.integer_value = 0xAF;
-    values[1].value.integer_value = 0xAF;
+    values[0].value.integer_value = 0x75;
+    values[1].value.integer_value = 0x75;
     ret = device_codec_set_control(dev,
                                    RT5647_CTL_DAC2_VOL,
                                    0,  //no parent widget
