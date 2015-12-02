@@ -1290,6 +1290,7 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     struct pll_code code;
     int sysclk = 0, ratefreq = 0, numbits = 0, ret = 0;
     uint32_t value = 0, mask = 0, format = 0;
+    int bclkfreq = 0;
 
     if (!dev || !device_get_private(dev) || !pcm || !dai) {
         return -EINVAL;
@@ -1325,7 +1326,9 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     }
 
     sysclk = 256 * ratefreq; /* 256*FS */
+    bclkfreq = ratefreq * 2 * numbits;
     ret = rt5647_pll_calc(dai->mclk_freq, sysclk, &code);
+    //ret = rt5647_pll_calc(bclkfreq, sysclk, &code);
     if (ret) {
         return -EINVAL;
     }
@@ -1370,9 +1373,9 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     }
 
     // write clock setting
-    //value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_MCLK; /* MCLK->PLL->SYSCLK */
+    value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_MCLK; /* MCLK->PLL->SYSCLK */
     //jason testing
-    value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_BCLK1; /* BCLK1->PLL->SYSCLK */
+    //value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_BCLK1; /* BCLK1->PLL->SYSCLK */
     mask = RT5647_SYSCLK_S_MASK | RT5647_PLL_S_MASK;
     audcodec_update(RT5647_GLOBAL_CLOCK, value, mask);
 
