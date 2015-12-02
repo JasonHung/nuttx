@@ -231,7 +231,7 @@ struct rt5647_reg rt5647_init_regs[] = {
     { RT5647_PWR_MGT_4, 0x0200 },   // pll power // jason
     { RT5647_PWR_MGT_5, 0x3002 },   // LDO2 power control // jason
     /* hack, Haptic generator control for testing */
-    //{ RT5647_HAPTIC_CTRL1, 0x6888 }, // AC and 888Hz
+    { RT5647_HAPTIC_CTRL1, 0x2888 }, // AC and 888Hz
     { RT5647_CLS_D_AMP, 0xA0E8 },   // enable auto powerdown when oc
 };
 
@@ -545,8 +545,8 @@ audio_route rt5647_routes[] = {
       RT5647_CTL_DAC2_LSRC, 0 },
     // IF1 DAC2 R
     { RT5647_WIDGET_IF1_DAC2R, RT5647_WIDGET_DACR2_MUX,
-      RT5647_CTL_DAC2_RSRC, 0 },
-      //RT5647_CTL_DAC2_RSRC, 4 }, // hack, route to haptic control
+      //RT5647_CTL_DAC2_RSRC, 0 },
+      RT5647_CTL_DAC2_RSRC, 4 }, // hack, route to haptic control
 
     // DAC L2 Mux
     { RT5647_WIDGET_DACL2_MUX, RT5647_WIDGET_DACL2_VOL, NOCONTROL, 0 },
@@ -568,11 +568,11 @@ audio_route rt5647_routes[] = {
 
     // DAC L1
     { RT5647_WIDGET_DAC_L1, RT5647_WIDGET_SPK_MIXL, RT5647_CTL_SPKL_DACL1, 0 },
-    { RT5647_WIDGET_DAC_L1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACL1, 0 },
+    //{ RT5647_WIDGET_DAC_L1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACL1, 0 }, //tmp disable by jason
     // DAC R1
     { RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPK_MIXR, RT5647_CTL_SPKR_DACR1, 0 },
-    { RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACR1, 0 },
-    { RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOR_MIX, RT5647_CTL_SPOR_DACR1, 0 },
+    //{ RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOL_MIX, RT5647_CTL_SPOL_DACR1, 0 }, //tmp disabe by jason
+    //{ RT5647_WIDGET_DAC_R1, RT5647_WIDGET_SPOR_MIX, RT5647_CTL_SPOR_DACR1, 0 }, //tmp disable by jason
 
     // SPK MIXL
     { RT5647_WIDGET_SPK_MIXL, RT5647_WIDGET_SPKVOLL, NOCONTROL, 0 },
@@ -1342,6 +1342,7 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     struct pll_code code;
     int sysclk = 0, ratefreq = 0, numbits = 0, ret = 0;
     uint32_t value = 0, mask = 0, format = 0;
+    uint32_t tdm1 = 0, tdm2 = 0, tdm3 = 0;
 
     if (!dev || !device_get_private(dev) || !pcm || !dai) {
         return -EINVAL;
@@ -1395,6 +1396,7 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     case DEVICE_DAI_PROTOCOL_I2S:
         format |= RT5647_I2S_FORMAT_I2S;
         if (info->tdm_en) {
+            tdm1 = 1 << RT5647_TDM_MODE_SEL;
         }
         break;
     case DEVICE_DAI_PROTOCOL_LR_STEREO:
@@ -1765,6 +1767,8 @@ static int rt5647_start_rx(struct device *dev, uint32_t dai_idx)
     }
     info->state |= CODEC_DEVICE_FLAG_RX_START;
 
+    //audcodec_update(0x48, 1<<15, 1<<15);
+    //audcodec_write(0x48,0xF807);
     /* for audio testing */
     rt5647_dump_register();
     return 0;
