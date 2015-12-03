@@ -288,22 +288,30 @@ static int stream_i2s_to_codec(struct i2s_test_info *info,
                                struct device *i2s_dev,
                                struct device *codec_dev)
 {
-    int ret = OK;
+    int ret = OK, i = 0;
 
     ret = device_codec_start_rx(codec_dev, 0);
     if (ret)
         goto err_codec;
 
+    printf("start to playback...\n");
     ret = i2s_test_start_transmitter(info, i2s_dev);
     if (ret)
         goto err_i2s;
 
+#if 0
     /*
      * Wait forever.  Can't just exit because callback is still being
      * called by driver to keep filling/draining the ring buffer.
      */
     while (sem_wait(&i2s_test_done_sem) && (errno == EINTR));
-
+#else
+    // delay 15s
+    for (i = 0; i < 15000; i++) {
+        usleep(1000);
+    }
+#endif
+    printf("stop to playback.\n");
     i2s_test_stop_transmitter(i2s_dev);
 
 err_i2s:
