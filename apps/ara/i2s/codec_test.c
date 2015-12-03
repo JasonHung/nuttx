@@ -489,6 +489,69 @@ codec_err:
     return ret;
 }
 
+static int disable_codec_speaker(struct i2s_test_info *info,
+                                struct device *dev)
+{
+    int ret = 0, i = 0, offset = 0;
+    struct gb_audio_ctl_elem_value values[2];
+
+    printf("%s\n",__func__);
+    if (!dev) {
+        return -EINVAL;
+    }
+
+    // enable audio controls
+    values[0].value.integer_value = 0x27;
+    values[1].value.integer_value = 0x27;
+    ret = device_codec_set_control(dev,
+                                   RT5647_CTL_SPKOUT_VOL,
+                                   0,  //no parent widget
+                                   values);
+    if (ret) {
+        fprintf(stderr, "RT5647_CTL_SPKOUT_VOL did not work: error %d\n",ret);
+        goto codec_err;
+    }
+    values[0].value.integer_value = 0x0;
+    values[1].value.integer_value = 0x0;
+    ret = device_codec_set_control(dev,
+                                   RT5647_CTL_DAC2_VOL,
+                                   0,  //no parent widget
+                                   values);
+    if (ret) {
+        fprintf(stderr, "RT5647_CTL_DAC2_VOL did not work: error %d\n",ret);
+        goto codec_err;
+    }
+    values[0].value.integer_value = 0;
+    values[1].value.integer_value = 0;
+    ret = device_codec_set_control(dev,
+                                   RT5647_CTL_SPKOUT_MUTE,
+                                   0,  //no parent widget
+                                   values);
+    if (ret) {
+        fprintf(stderr, "RT5647_CTL_SPKOUT_MUTE did not work: error %d\n",ret);
+        goto codec_err;
+    }
+    ret = device_codec_set_control(dev,
+                                   RT5647_CTL_SPKVOL_MUTE,
+                                   0,  //no parent widget
+                                   values);
+    if (ret) {
+        fprintf(stderr, "RT5647_CTL_SPKVOL_MUTE did not work: error %d\n",ret);
+        goto codec_err;
+    }
+    ret = device_codec_set_control(dev,
+                                   RT5647_CTL_DAC2_SWITCH,
+                                   0,  //no parent widget
+                                   values);
+    if (ret) {
+        fprintf(stderr, "RT5647_CTL_DAC2_SWITCH did not work: error %d\n",ret);
+        goto codec_err;
+    }
+
+codec_err:
+    return ret;
+}
+
 int play_sine_wave_via_codec(struct i2s_test_info *info)
 {
     struct device *i2s_dev = NULL;
@@ -530,6 +593,9 @@ int play_sine_wave_via_codec(struct i2s_test_info *info)
     if(ret)
         goto dev_close;
 
+    ret = disable_codec_speaker(info, codec_dev);
+    if(ret)
+        goto dev_close;
 dev_close:
     if (i2s_dev) {
         device_close(i2s_dev);
