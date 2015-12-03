@@ -197,6 +197,8 @@ static int rt5647_button_detect(struct rt5647_info *info);
  * codec register initialization table
  */
 struct rt5647_reg rt5647_init_regs[] = {
+    { RT5647_PR_INDEX, 0x003d },
+    { RT5647_PR_DATA, 0x3600 },
     { RT5647_GENERAL_CTRL_1, 0x2061 }, /* enable MCLK Gate Control */
     { RT5647_ADC_DAC_CLK_CTRL, 0x0000 },
     { RT5647_PR_INDEX, 0x003d },
@@ -741,6 +743,44 @@ static uint32_t rt5647_audcodec_hw_write(uint32_t reg, uint32_t value)
         return -EIO;
     }
     printf("I2C-W %02X %04X\n", reg, value);
+    return 0;
+}
+
+/**
+ * @brief read data from codec private register
+ *
+ * @param reg - rt5645 codec PR-xx register
+ * @param value - data buffer of read
+ * @return 0 on success, negative errno on error
+ */
+static uint32_t rt5647_audcodec_hw_pr_read(uint32_t reg, uint32_t *value)
+{
+    if(rt5647_audcodec_hw_write(RT5647_PR_INDEX, reg)) {
+        return -EIO;
+    }
+    if(rt5647_audcodec_hw_read(RT5647_PR_DATA, value)) {
+        return -EIO;
+    }
+    printf("I2C-R PR-%02X %04X\n", reg, *value);
+    return 0;
+}
+
+/**
+ * @brief write data to codec private register
+ *
+ * @param reg - rt5645 codec PR-xx register
+ * @param value - register value that we want to write
+ * @return 0 on success, negative errno on error
+ */
+static uint32_t rt5647_audcodec_hw_pr_write(uint32_t reg, uint32_t value)
+{
+    if(rt5647_audcodec_hw_write(RT5647_PR_INDEX, reg)) {
+        return -EIO;
+    }
+    if(rt5647_audcodec_hw_write(RT5647_PR_DATA, value)) {
+        return -EIO;
+    }
+    printf("I2C-W PR-%02X %04X\n", reg, value);
     return 0;
 }
 
@@ -1346,7 +1386,7 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     struct rt5647_info *info = NULL;
     struct gb_audio_pcm *pbpcm = NULL;
     struct pll_code code;
-    int sysclk = 0, ratefreq = 0, numbits = 0, ret = 0;
+    int sysclk = 0, ratefreq = 0, numbits = 0, ret = 0, bclkfreq = 0;
     uint32_t value = 0, mask = 0, format = 0;
     uint32_t tdm1 = 0, tdm2 = 0, tdm3 = 0;
 
@@ -1384,10 +1424,23 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     }
 
     sysclk = 256 * ratefreq; /* 256*FS */
-    ret = rt5647_pll_calc(dai->mclk_freq, sysclk, &code);
+    bclkfreq = ratefreq * numbits * 2;
+    //ret = rt5647_pll_calc(dai->mclk_freq, sysclk, &code);
+    //sysclk = 1000000;
+    ret = rt5647_pll_calc(bclkfreq, sysclk, &code);
     if (ret) {
         return -EINVAL;
     }
+    //rt5647_audcodec_hw_write(0x83,0x0C08);
+    //rt5647_audcodec_hw_write(0x84,0x1111);
+    //rt5647_audcodec_hw_write(0x85,0x0011);
+    //rt5647_audcodec_hw_write(0x86,0x0000);
+    
+    rt5647_audcodec_hw_write(0x77,0x4000);
+    rt5647_audcodec_hw_write(0x78,0x00FF);
+    rt5647_audcodec_hw_write(0x79,0x2301);
+    
+    
     printf("mclk_freq:%d, sysclk:%d\n", dai->mclk_freq, sysclk);
     printf("n:%d, k:%d, m:%d, bp:%d\n", code.n, code.k, code.m, code.bp);
     /* setup codec hw */
@@ -1430,7 +1483,8 @@ static int rt5647_set_config(struct device *dev, unsigned int dai_idx,
     }
 
     // write clock setting
-    value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_MCLK; /* MCLK->PLL->SYSCLK */
+    //value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_MCLK; /* MCLK->PLL->SYSCLK */
+    value = RT5647_SYSCLK_S_PLL | RT5647_PLL_S_BCLK1; /* BCLK1->PLL->SYSCLK */
     mask = RT5647_SYSCLK_S_MASK | RT5647_PLL_S_MASK;
     audcodec_update(RT5647_GLOBAL_CLOCK, value, mask);
 
@@ -1768,8 +1822,9 @@ static int rt5647_start_rx(struct device *dev, uint32_t dai_idx)
         return -EINVAL;
     }
     if (dai_idx == 0) { /* i2s1 */
-        audcodec_update(RT5647_PWR_MGT_1, 1 << RT5647_PWR1_I2S1_EN,
-                        1 << RT5647_PWR1_I2S1_EN);
+        audcodec_update(RT5647_PWR_MGT_1,
+                        1 << RT5647_PWR1_I2S1_EN | 1<< RT5647_PWR1_ADC_L_EN | 1 << RT5647_PWR1_ADC_R_EN,
+                        1 << RT5647_PWR1_I2S1_EN | 1<< RT5647_PWR1_ADC_L_EN | 1 << RT5647_PWR1_ADC_R_EN);
     }
     info->state |= CODEC_DEVICE_FLAG_RX_START;
 
