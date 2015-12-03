@@ -112,7 +112,7 @@ static int i2s_test_parse_cmdline(int argc, char *argv[],
     info->is_i2s = 1;
     info->is_gen_audio = 1;
     info->aud_frequency = 1000;
-    info->aud_volume = 10;
+    info->aud_volume = 19;
     info->use_codec = 1;
     info->rb_entries = 100;
     info->samples_per_rb_entry = 2;

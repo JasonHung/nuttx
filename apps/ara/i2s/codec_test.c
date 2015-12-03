@@ -169,24 +169,23 @@ static int find_common_dai_settings(struct i2s_test_info *info,
     }
 
     /* make single bit compatibility fields */
-    if(!ONE_BIT_IS_SET(compatible_dai.protocol)) {
-        compatible_dai.protocol = choose_single_bit(compatible_dai.protocol);
-    }
-
     if(!ONE_BIT_IS_SET(compatible_dai.wclk_polarity)) {
         compatible_dai.wclk_polarity = choose_single_bit(compatible_dai.wclk_polarity);
     }
 
     if(!ONE_BIT_IS_SET(compatible_dai.wclk_change_edge)) {
-        compatible_dai.wclk_change_edge = choose_single_bit(compatible_dai.wclk_change_edge);
+        //rem chris compatible_dai.wclk_change_edge = choose_single_bit(compatible_dai.wclk_change_edge);
+        compatible_dai.wclk_change_edge = DEVICE_DAI_EDGE_FALLING;
     }
 
     if(!ONE_BIT_IS_SET(compatible_dai.data_rx_edge)) {
-        compatible_dai.data_rx_edge = choose_single_bit(compatible_dai.data_rx_edge);
+        //rem chris compatible_dai.data_rx_edge = choose_single_bit(compatible_dai.data_rx_edge);
+        compatible_dai.data_rx_edge = DEVICE_DAI_EDGE_RISING;
     }
 
     if(!ONE_BIT_IS_SET(compatible_dai.data_tx_edge)) {
-        compatible_dai.data_tx_edge = choose_single_bit(compatible_dai.data_tx_edge);
+        // rem chris compatible_dai.data_tx_edge = choose_single_bit(compatible_dai.data_tx_edge);
+        compatible_dai.data_tx_edge = compatible_dai.wclk_change_edge;
     }
 
     /* find a master */
@@ -299,7 +298,7 @@ static int stream_i2s_to_codec(struct i2s_test_info *info,
     if (ret)
         goto err_i2s;
 
-#if 0
+#if 1
     /*
      * Wait forever.  Can't just exit because callback is still being
      * called by driver to keep filling/draining the ring buffer.
@@ -307,7 +306,7 @@ static int stream_i2s_to_codec(struct i2s_test_info *info,
     while (sem_wait(&i2s_test_done_sem) && (errno == EINTR));
 #else
     // delay 15s
-    for (i = 0; i < 15000; i++) {
+    for (i = 0; i < 1000; i++) {
         usleep(1000);
     }
 #endif
