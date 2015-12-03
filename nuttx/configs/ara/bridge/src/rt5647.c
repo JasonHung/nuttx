@@ -2062,6 +2062,7 @@ static void rt5647_audcodec_close(struct device *dev)
     gpio_unmask_irq(info->jack_detect);
     gpio_deactivate(info->jack_detect);
 #endif
+    audcodec_write(RT5647_RESET, 0);    /* software reset */
     /* clear open state */
     info->state &= ~(CODEC_DEVICE_FLAG_OPEN | CODEC_DEVICE_FLAG_CONFIG);
 }
