@@ -447,8 +447,8 @@ static int enable_codec_speaker(struct i2s_test_info *info,
         fprintf(stderr, "RT5647_CTL_SPKOUT_VOL did not work: error %d\n",ret);
         goto codec_err;
     }
-    values[0].value.integer_value = 0xAF;//0x75;
-    values[1].value.integer_value = 0xAF;//0x75;
+    values[0].value.integer_value =0x75;
+    values[1].value.integer_value = 0x75;
     ret = device_codec_set_control(dev,
                                    RT5647_CTL_DAC2_VOL,
                                    0,  //no parent widget
