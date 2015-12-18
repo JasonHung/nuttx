@@ -186,9 +186,41 @@ config ARCH_CHIP_DEVICE_I2S
 config ARCH_CHIP_DEVICE_SPI
 	bool "SPI Master Support"
 	select DEVICE_CORE
-	default n
+	default y
 	---help---
 		TSB SPI Master Driver
+
+if ARCH_CHIP_DEVICE_SPI
+
+config SPI_MAX_FREQ
+	int "TSB SPI maximum clock frequency"
+	default 24000000
+
+config SPI_MIN_FREQ
+	int "TSB SPI minimum clock frequency"
+	default 15000
+
+config SPI_MAX_DIV
+	hex "TSB SPI maximum divide range"
+	default 0xFFFF
+
+config SPI_BPW_MASK
+	hex "TSB SPI support 4 to 32 bits bandwidth"
+	default 0xFFFFFFF8
+
+config SPI_MAX_CHIPS
+	int "TSB SPI support 2 chips selection"
+	default 2
+
+config SPI_TX_DEPTH
+	int "TSB SPI support 16 FIFO depth for TX"
+	default 16
+
+config SPI_RX_DEPTH
+	int "TSB SPI support 16 FIFO depth for RX"
+	default 16
+
+endif
 
 config ARCH_CHIP_DEVICE_SDIO
 	bool "SDIO Support"
