@@ -221,6 +221,7 @@ struct rt5647_reg rt5647_init_regs[] = {
 #endif
 
 #ifdef MIN_SPEAKER_SUPPORT
+    { RT5647_DACL2_R2_DIGI_VOL, 0xA1A1 },
     { RT5647_PWR_MGT_1, 0x9BC1 },
     { RT5647_DACL2_R2_DIGI_MUTE, 0x0000 },
     { RT5647_PWR_MGT_5, 0x3002 },
