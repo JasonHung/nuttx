@@ -160,6 +160,17 @@ struct audio_board_init_data audio_board_init_data_info = {
 };
 #endif
 
+#ifdef CONFIG_BOARD_CODEC_RT5647
+static struct device_resource rt5647_resources[] = {
+    {
+        .name  = "rt5647_i2c_addr",
+        .type  = DEVICE_RESOURCE_TYPE_I2C_ADDR,
+        .start = 0x1B,
+        .count = 1,
+    },
+};
+#endif
+
 static struct device devices[] = {
 #ifdef CONFIG_ARA_BRIDGE_HAVE_USB4624
     {
@@ -226,6 +237,8 @@ static struct device devices[] = {
         .name           = "rt5647",
         .desc           = "ALC5647 Audio Codec driver",
         .id             = 0,
+        .resources      = rt5647_resources,
+        .resource_count = ARRAY_SIZE(rt5647_resources),
     },
 #endif
 };

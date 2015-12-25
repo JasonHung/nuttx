@@ -112,6 +112,8 @@ struct rt5647_info {
     struct device *dev;
     /** i2c device handle */
     struct i2c_dev_s *i2c;
+    /** i2c slave address (7-bits) */
+    uint8_t i2c_addr;
     /** codec name */
     uint8_t name[AUDIO_CODEC_NAME_MAX];
     /** device state */
@@ -715,13 +717,11 @@ static uint32_t rt5647_audcodec_hw_read(uint32_t reg, uint32_t *value)
      */
     struct i2c_msg_s msg[] = {
         {
-            .addr = RT5647_I2C_ADDR,
             .flags = 0,
             .buffer = &cmd,
             .length = 1,
         },
         {
-            .addr = RT5647_I2C_ADDR,
             .flags = I2C_M_READ,
             .buffer = (uint8_t*)&data,
             .length = 2,
@@ -735,6 +735,8 @@ static uint32_t rt5647_audcodec_hw_read(uint32_t reg, uint32_t *value)
     if (!info->i2c) {
         return -EINVAL;
     }
+    msg[0].addr = info->i2c_addr;
+    msg[1].addr = info->i2c_addr;
 
     cmd = (uint8_t)reg;
 
@@ -768,7 +770,6 @@ static uint32_t rt5647_audcodec_hw_write(uint32_t reg, uint32_t value)
 
     struct i2c_msg_s msg[] = {
         {
-            .addr = RT5647_I2C_ADDR,
             .flags = 0,
             .buffer = cmd,
             .length = 3,
@@ -782,6 +783,7 @@ static uint32_t rt5647_audcodec_hw_write(uint32_t reg, uint32_t value)
     if (!info->i2c) {
         return -EINVAL;
     }
+    msg[0].addr = info->i2c_addr;
 
     cmd[0] = (uint8_t)reg;
     cmd[1] = (uint8_t)((value >> 8) & 0xFF);
@@ -2035,6 +2037,7 @@ static int rt5647_audcodec_probe(struct device *dev)
     struct control_node *node = NULL;
     struct audio_control *controls = NULL;
     struct audio_widget *widgets = NULL;
+    struct device_resource *r;
     int i = 0, j = 0;
 
     if (!dev) {
@@ -2073,6 +2076,14 @@ static int rt5647_audcodec_probe(struct device *dev)
         free(info);
         return -EIO;
     }
+    /* get i2c slave address */
+    r = device_resource_get_by_name(dev, DEVICE_RESOURCE_TYPE_I2C_ADDR,
+                                    "rt5647_i2c_addr");
+    if (!r) {
+        free(info);
+        return -EINVAL;
+    }
+    info->i2c_addr = (uint8_t)r->start;
 
     /* assign codec register access function,
      * common codec function will use two function acces codec hardware
