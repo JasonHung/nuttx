@@ -41,6 +41,8 @@
 
 #include <stdio.h>
 #include <debug.h>
+#include <semaphore.h>
+#include <errno.h>
 
 #include "lib_internal.h"
 
@@ -90,18 +92,43 @@
 
 #if defined(CONFIG_ARCH_LOWPUTC) || defined(CONFIG_SYSLOG)
 
+#ifndef CONFIG_SYSLOG
+int lowout_seminit = 0;
+sem_t lowout_sem;
+#endif
+
 int lowvsyslog(FAR const char *fmt, va_list ap)
 {
-  struct lib_outstream_s stream;
+    struct lib_outstream_s stream;
 
-  /* Wrap the stdout in a stream object and let lib_vsprintf do the work. */
+    /* Wrap the stdout in a stream object and let lib_vsprintf do the work. */
 
 #ifdef CONFIG_SYSLOG
-  lib_syslogstream((FAR struct lib_outstream_s *)&stream);
+    lib_syslogstream((FAR struct lib_outstream_s *)&stream);
+    return lib_vsprintf((FAR struct lib_outstream_s *)&stream, fmt, ap);
 #else
-  lib_lowoutstream((FAR struct lib_outstream_s *)&stream);
+    int ret = 0;
+
+    lib_lowoutstream((FAR struct lib_outstream_s *)&stream);
+
+    if (!lowout_seminit) {
+        sem_init(&lowout_sem, 0, 1);
+        lowout_seminit = 1;
+    }
+
+    if (!up_interrupt_context() && getpid()) {
+        do {
+            ret = sem_wait(&lowout_sem);
+        } while (ret < 0 && errno == EINTR);
+
+        ret = lib_vsprintf((FAR struct lib_outstream_s *)&stream, fmt, ap);
+
+        sem_post(&lowout_sem);
+    } else {
+        ret = lib_vsprintf((FAR struct lib_outstream_s *)&stream, fmt, ap);
+    }
+    return ret;
 #endif
-  return lib_vsprintf((FAR struct lib_outstream_s *)&stream, fmt, ap);
 }
 
 /****************************************************************************
