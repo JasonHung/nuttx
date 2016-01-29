@@ -202,7 +202,7 @@ config SPI_MIN_FREQ
 
 config SPI_MAX_DIV
 	hex "TSB SPI maximum divide range"
-	default 0xFFFF
+	default 0xFFFE
 
 config SPI_BPW_MASK
 	hex "TSB SPI support 4 to 32 bits bandwidth"

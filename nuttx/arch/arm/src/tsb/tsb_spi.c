@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 Google, Inc.
+ * Copyright (c) 2016 Google, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,9 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/device.h>
+#include <nuttx/gpio.h>
 #include <nuttx/device_spi.h>
+#include <nuttx/device_spi_board.h>
 
 #include "up_arch.h"
 #include "tsb_scm.h"
@@ -51,6 +53,14 @@
 #define DW_SPI_SR       0x28
 #define DW_SPI_IMR      0x2C
 #define DW_SPI_ISR      0x30
+#define DW_SPI_RISR     0x34
+
+#define DW_SPI_TXOICR   0x38
+#define DW_SPI_RXOICR   0x3C
+#define DW_SPI_RXUICR   0x40
+#define DW_SPI_MSTICR   0x44
+#define DW_SPI_ICR      0x48
+
 #define DW_SPI_DMACR    0x4C
 #define DW_SPI_DMATDLR  0x50
 #define DW_SPI_DMARDLR  0x54
@@ -59,25 +69,37 @@
 /** bit for DW_SPI_CTRLR0 */
 #define SPI_CTRLR0_SCPH         BIT(6)
 #define SPI_CTRLR0_SCPOL        BIT(7)
+#define SPI_CTRLR0_SRL          BIT(11)
 #define SPI_CTRL0_TMOD_MASK     (0x03 << 8)
 #define SPI_CTRLR0_DFS32_OFFSET 16
 #define SPI_CTRLR0_DFS32_MASK   (0x1f << SPI_CTRLR0_DFS32_OFFSET)
 
 /** bit for DW_SPI_SR */
+#define SPI_SR_BUSY_MASK    BIT(0)
 #define SPI_SR_TFNF_MASK    BIT(1)
 #define SPI_SR_TFE_MASK     BIT(2)
-#define SPI_SR_RFNF_MASK    BIT(3)
+#define SPI_SR_RFNE_MASK    BIT(3)
 #define SPI_SR_RFF_MASK     BIT(4)
+#define SPI_SR_TXE_MASK     BIT(5)
+#define SPI_SR_DCOL_MASK    BIT(6)
 
 /** bit for DW_SPI_IMR */
+#define SPI_IMR_TXEIM_MASK  BIT(0)
 #define SPI_IMR_TXOIM_MASK  BIT(1)
+#define SPI_IMR_RXUIM_MASK  BIT(2)
+#define SPI_IMR_RXOIM_MASK  BIT(3)
 #define SPI_IMR_RXFIM_MASK  BIT(4)
+#define SPI_IMR_MSTIM_MASK  BIT(5)
 
 /** bit for DW_SPIISR */
+#define SPI_ISR_TXEIS_MASK  BIT(0)
+#define SPI_ISR_TXOIS_MASK  BIT(1)
+#define SPI_ISR_RXUIS_MASK  BIT(2)
+#define SPI_ISR_RXOIS_MASK  BIT(3)
 #define SPI_ISR_RXFIS_MASK  BIT(4)
+#define SPI_ISR_MSTIS_MASK  BIT(5)
 
-#define COMMAND_INTERVAL    1000 /* 1ms */
-#define TOLERANCE_TIME      2    /* 2ms timeout tolerance for an operation */
+#define SPI_BUS_CLOCK       48000000    /* 48MHz */
 
 /**
  * SPI device state
@@ -90,33 +112,29 @@ enum tsb_spi_state {
 };
 
 /**
- * Current RX transition state.
+ * Current transition information.
  */
 struct xfer_curr_info {
-    /** Select bits per word for this transfer */
-    uint8_t cur_bpw;
-
-    /** Byte need to read */
-    uint32_t rx_len;
+    /** Currently TX buffer pointer */
+    uint8_t *cur_tx;
 
     /** Currently RX buffer pointer */
     uint8_t *cur_rx;
 
-    /** Flag for receive process checking */
-    uint8_t read_done;
+    /** Select bits per word for this transfer */
+    uint8_t cur_bpw;
 
-    /** flag for stop receive processing */
-    uint8_t stop_read;
+    /** Tx buffer remaining bytes */
+    uint32_t tx_remaining;
+
+    /** Tx buffer remaining bytes */
+    uint32_t rx_remaining;
+
+    /** transmission status */
+    int status;
 };
 
-/**
- * Specific parameter for each Chip of tranfer operation, Vendor can modify it
- * for connected SPI device.
- */
-struct device_spi_cfg chips_info[CONFIG_SPI_MAX_CHIPS] = {
-    {SPI_MODE_CPHA, 32, CONFIG_SPI_MAX_FREQ, "spidev"},
-    {SPI_MODE_CPOL,  8, CONFIG_SPI_MIN_FREQ, "spidev"}
-};
+static struct device *spi_dev = NULL;
 
 /**
  * @brief private SPI device information
@@ -124,6 +142,7 @@ struct device_spi_cfg chips_info[CONFIG_SPI_MAX_CHIPS] = {
 struct tsb_spi_info {
     /** Driver model representation of the device */
     struct device *dev;
+    struct device *spi_board_dev;
 
     /** SPI device base address */
     uint32_t reg_base;
@@ -137,8 +156,8 @@ struct tsb_spi_info {
     /** struct for SPI controller capability store */
     struct master_spi_caps caps;
 
-    /** struct for chips configuration store */
-    struct device_spi_cfg *dev_cfg;
+    /** chip-select pin active high when selected */
+    uint16_t cs_high;
 
     /** Exclusive access for SPI bus */
     sem_t bus;
@@ -147,21 +166,23 @@ struct tsb_spi_info {
     sem_t lock;
 
     /** RX thread notification flag */
-    sem_t start_read;
-
-    /** info the thread should be terminated */
-    uint8_t thread_stop;
-
-    /** Handler for read thread */
-    pthread_t pthread_handler;
+    sem_t xfer_completed;
 
     /** TX FIFO depth for SPI controller */
     uint32_t tx_fifo_depth;
 
     /** RX FIFO depth for SPI controller */
     uint32_t rx_fifo_depth;
-};
 
+    /** using normal GPIO pin instead of internal chip-select function */
+    bool using_gpio;
+
+    /** number of spi slave device */
+    uint8_t dev_num;
+
+    /** configuration of spi slave device */
+    struct spi_board_device_cfg *board_cfg;
+};
 
 /**
  * @brief Read value from register.
@@ -269,7 +290,8 @@ static int tsb_spi_unlock(struct device *dev)
 static int tsb_spi_select(struct device *dev, uint8_t devid)
 {
     struct tsb_spi_info *info = NULL;
-    int ret = 0;
+    int ret = 0, i;
+    uint8_t select = 0;
 
     /* check input parameters */
     if (!dev || !device_get_private(dev)) {
@@ -289,8 +311,19 @@ static int tsb_spi_select(struct device *dev, uint8_t devid)
         ret = -EINVAL;
         goto err_select;
     }
-
     tsb_spi_write(info->reg_base, DW_SPI_SER, (1 << devid));
+
+    if (info->using_gpio) {
+        /* only one chip-select pin can be actived */
+        for (i = 0; i < info->dev_num; i++) {
+            select = (info->cs_high & BIT(i))? 1 : 0;
+            if (i == devid) {
+                gpio_set_value(info->board_cfg[i].ext_cs, select);
+            } else {
+                gpio_set_value(info->board_cfg[i].ext_cs, !select);
+            }
+        }
+    }
 
 err_select:
     sem_post(&info->lock);
@@ -313,6 +346,7 @@ err_select:
 static int tsb_spi_deselect(struct device *dev, uint8_t devid)
 {
     struct tsb_spi_info *info = NULL;
+    uint8_t deselect = 0;
 
     /* check input parameters */
     if (!dev || !device_get_private(dev)) {
@@ -327,9 +361,12 @@ static int tsb_spi_deselect(struct device *dev, uint8_t devid)
         sem_post(&info->lock);
         return -EPERM;
     }
-
     tsb_spi_write(info->reg_base, DW_SPI_SER, 0);
 
+    if (info->using_gpio) {
+        deselect = (info->cs_high & BIT(devid))? 0 : 1;
+        gpio_set_value(info->board_cfg[devid].ext_cs, deselect);
+    }
     sem_post(&info->lock);
     return 0;
 }
@@ -357,7 +394,7 @@ static int tsb_spi_setfrequency(struct device *dev, uint8_t cs,
     int ret = 0;
 
     /* check input parameters */
-    if (!dev || !device_get_private(dev) || !frequency) {
+    if (!dev || !device_get_private(dev) || !frequency || !(*frequency)) {
         return -EINVAL;
     }
 
@@ -377,21 +414,26 @@ static int tsb_spi_setfrequency(struct device *dev, uint8_t cs,
 
     freq = *frequency;
 
-    if (freq < CONFIG_SPI_MIN_FREQ || freq > info->dev_cfg[cs].max_speed_hz ||
-        freq == 0) {
+    /* check the frequency range */
+    if (freq > CONFIG_SPI_MAX_FREQ || freq < CONFIG_SPI_MIN_FREQ) {
         ret = -EINVAL;
         goto err_freq_set;
     }
 
-    div = CONFIG_SPI_MAX_FREQ / freq;
+    div = SPI_BUS_CLOCK / freq;
+    /* the 'div' doesn't support odd number */
+    div = (div + 1) & 0xFFFE;
 
     if (div > CONFIG_SPI_MAX_DIV) {
         ret = -EINVAL;
         goto err_freq_set;
     }
 
+    freq = SPI_BUS_CLOCK / div;
+
     tsb_spi_write(info->reg_base, DW_SPI_BAUDR, div);
 
+    *frequency = freq;
 err_freq_set:
     sem_post(&info->lock);
     return ret;
@@ -437,23 +479,37 @@ static int tsb_spi_setmode(struct device *dev, uint8_t cs, uint8_t mode)
         goto err_setmode;
     }
 
-    /* check mode whether supported */
-    if (info->dev_cfg[cs].mode & ~mode) {
-        ret = -EINVAL;
+    /* check hardware mode capabilities */
+    if ((mode & info->caps.modes) != mode) {
+        ret = -ENOSYS;
         goto err_setmode;
     }
 
     ctrl0 = tsb_spi_read(info->reg_base, DW_SPI_CTRLR0);
 
+    /* set SPI clock phase */
     if (mode & SPI_MODE_CPHA)
         ctrl0 |= SPI_CTRLR0_SCPH;
     else
         ctrl0 &= ~SPI_CTRLR0_SCPH;
 
+    /* set SPI clock polarity */
     if (mode & SPI_MODE_CPOL)
         ctrl0 |= SPI_CTRLR0_SCPOL;
     else
         ctrl0 &= ~SPI_CTRLR0_SCPOL;
+
+    /* set SPI loopback mode */
+    if (mode & SPI_MODE_LOOP)
+        ctrl0 |= SPI_CTRLR0_SRL;
+    else
+        ctrl0 &= ~SPI_CTRLR0_SRL;
+
+    /* SPI CS_HIGH mode */
+    if (mode & SPI_MODE_CS_HIGH)
+        info->cs_high |= BIT(cs);
+    else
+        info->cs_high &= ~BIT(cs);
 
     tsb_spi_write(info->reg_base, DW_SPI_CTRLR0, ctrl0);
 
@@ -476,7 +532,7 @@ err_setmode:
 static int tsb_spi_setbits(struct device *dev, uint8_t cs, uint8_t nbits)
 {
     struct tsb_spi_info *info = NULL;
-    uint16_t ctrl0 = 0;
+    uint32_t ctrl0 = 0;
     int ret = 0;
 
     /* check input parameters */
@@ -498,8 +554,9 @@ static int tsb_spi_setbits(struct device *dev, uint8_t cs, uint8_t nbits)
         goto exit_setbit;
     }
 
-    if (info->dev_cfg[cs].bpw != nbits) {
-        ret = -EINVAL;
+    /* check hardware bpw capabilities */
+    if (!(BIT(nbits - 1) & info->caps.bpw)) {
+        ret = -ENOSYS;
         goto exit_setbit;
     }
 
@@ -508,7 +565,6 @@ static int tsb_spi_setbits(struct device *dev, uint8_t cs, uint8_t nbits)
     ctrl0 |= ((nbits - 1) << SPI_CTRLR0_DFS32_OFFSET);
 
     tsb_spi_write(info->reg_base, DW_SPI_CTRLR0, ctrl0);
-
     info->curr_xfer.cur_bpw = nbits;
 
 exit_setbit:
@@ -533,11 +589,8 @@ static int tsb_spi_exchange(struct device *dev,
                              struct device_spi_transfer *transfer)
 {
     struct tsb_spi_info *info = NULL;
-    uint16_t u16_dr, time_out = 0;
-    uint32_t u32_dr, sr_reg;
-    uint8_t *txbuf = NULL;
-    uint8_t u8_dr;
-    int i = 0, ret = 0;
+    uint32_t imr_reg;
+    int ret = 0;
 
     /* check input parameters */
     if (!dev || !device_get_private(dev) || !transfer) {
@@ -558,85 +611,114 @@ static int tsb_spi_exchange(struct device *dev,
         goto err_unlock;
     }
 
-    if (transfer->txbuffer) {
-        txbuf = transfer->txbuffer;
-    }
-
-    if (transfer->rxbuffer) {
-        info->curr_xfer.cur_rx = transfer->rxbuffer;
-    } else {
-        info->curr_xfer.cur_rx = NULL;
-    }
+    info->curr_xfer.status = 0;
+    info->curr_xfer.cur_tx = (transfer->txbuffer)? transfer->txbuffer : NULL;
+    info->curr_xfer.cur_rx = (transfer->rxbuffer)? transfer->rxbuffer : NULL;
 
     /* event has read request, we still need to read data because SPI data
      * exchange behavior */
-    info->curr_xfer.rx_len = transfer->nwords;
-    info->curr_xfer.read_done = 0;
-    info->curr_xfer.stop_read = 0;
-    /* enable Rx FIFO-full interrupt */
+    info->curr_xfer.tx_remaining = transfer->nwords;
+    info->curr_xfer.rx_remaining = transfer->nwords;
+
+    /* enable interrupt */
+    imr_reg = SPI_IMR_TXEIM_MASK | SPI_IMR_RXOIM_MASK | SPI_IMR_RXUIM_MASK;
     tsb_spi_write(info->reg_base, DW_SPI_IMR,
-                  (tsb_spi_read(info->reg_base, DW_SPI_IMR) |
-                   SPI_IMR_RXFIM_MASK));
-    /* Active read thread */
-    sem_post(&info->start_read);
+                  (tsb_spi_read(info->reg_base, DW_SPI_IMR) | imr_reg));
 
-    sr_reg = tsb_spi_read(info->reg_base, DW_SPI_SR);
+    /* Enable SPI controller */
+    tsb_spi_write(info->reg_base, DW_SPI_SSIENR, 1);
+    sem_wait(&info->xfer_completed);
 
-    for (i = 0; i < transfer->nwords && txbuf;) {
-        if ((sr_reg & SPI_SR_TFNF_MASK) && !(sr_reg & SPI_SR_RFF_MASK)) {
-            if (info->curr_xfer.cur_bpw <= 8) {
-                u8_dr = (txbuf) ? *(txbuf++) : 0;
-                tsb_spi_write(info->reg_base, DW_SPI_DR, u8_dr);
-                i++;
-            } else if (info->curr_xfer.cur_bpw <= 16) {
-                u16_dr = (txbuf) ? *(uint16_t *)txbuf : 0;
-                txbuf += 2;
-                tsb_spi_write(info->reg_base, DW_SPI_DR, u16_dr);
-                i += 2;
-            } else {
-                u32_dr = (txbuf) ? *(uint32_t *)txbuf : 0;
-                txbuf += 4;
-                tsb_spi_write(info->reg_base, DW_SPI_DR, u32_dr);
-                i += 4;
-            }
-            /* reset timeout when each write success*/
-            time_out = 0;
-        } else {
-            usleep(COMMAND_INTERVAL);
-            time_out++;
-            if (time_out > TOLERANCE_TIME) {
-                /* force stop read processing if it is activated */
-                info->curr_xfer.stop_read = 1;
-                ret = -ETIMEDOUT;
-                goto err_unlock;
-            }
-        }
-        sr_reg = tsb_spi_read(info->reg_base, DW_SPI_SR);
+    /* get transmission status */
+    if (info->curr_xfer.status) {
+        ret = info->curr_xfer.status;
     }
-
-    /* Even this op has not read buffer, we still need to wait dummy data
-     * exchange was completed.
-     */
-    if (!info->curr_xfer.read_done) {
-        while (1) {
-            /* Has read process but not complete yet */
-            usleep(COMMAND_INTERVAL);
-            time_out++;
-            if (time_out > TOLERANCE_TIME) {
-                /* force stop read process because timeout */
-                info->curr_xfer.stop_read = 1;
-                ret = -ETIMEDOUT;
-                break;
-            }
-        }
-    }
-
-    tsb_spi_write(info->reg_base, DW_SPI_IMR,
-                  (tsb_spi_read(info->reg_base, DW_SPI_IMR) &
-                  ~SPI_IMR_RXFIM_MASK));
 err_unlock:
+    /* Disable SPI controller */
+    tsb_spi_write(info->reg_base, DW_SPI_SSIENR, 0);
     sem_post(&info->lock);
     return ret;
+}
+
+/**
+ * @brief Read SPI data from FIFO
+ *
+ * @param info pointer to the tsb_spi_info struct.
+ * @return 0 on success, negative errno on error
+ */
+int tsb_spi_process_rx(struct tsb_spi_info *info)
+{
+    struct xfer_curr_info *xfer = &info->curr_xfer;
+    uint32_t rx_left, rx_reads, data;
+
+    /* calculate how much available data in Rx FIFO */
+    rx_left = tsb_spi_read(info->reg_base, DW_SPI_RXFLR);
+    rx_reads = (rx_left > xfer->rx_remaining)? xfer->rx_remaining : rx_left;
+
+    while (rx_reads--) {
+        data = tsb_spi_read(info->reg_base, DW_SPI_DR);
+
+        if (xfer->cur_bpw <= 8) {
+            if (xfer->cur_rx) {
+                *(uint8_t *)(xfer->cur_rx) = data;
+            }
+            xfer->cur_rx += 1;
+        } else if (xfer->cur_bpw <= 16) {
+            if (xfer->cur_rx) {
+                *(uint16_t *)(xfer->cur_rx) = data;
+            }
+            xfer->cur_rx += 2;
+        } else if (xfer->cur_bpw <= 32) {
+            if (xfer->cur_rx) {
+                *(uint32_t *)(xfer->cur_rx) = data;
+            }
+            xfer->cur_rx += 4;
+        } else {
+            return -EINVAL;
+        }
+        xfer->rx_remaining--;
+    }
+    return 0;
+}
+
+/**
+ * @brief Write SPI data to FIFO
+ *
+ * @param info pointer to the tsb_spi_info struct.
+ * @return 0 on success, negative errno on error
+ */
+int tsb_spi_process_tx(struct tsb_spi_info *info)
+{
+    struct xfer_curr_info *xfer = &info->curr_xfer;
+    uint32_t tx_room, tx_writes, data = 0;
+
+    /* calculate how much available space in Tx FIFO */
+    tx_room = info->rx_fifo_depth - tsb_spi_read(info->reg_base, DW_SPI_TXFLR);
+    tx_writes = (xfer->tx_remaining > tx_room)? tx_room : xfer->tx_remaining;
+
+    while (tx_writes--) {
+        if (xfer->cur_bpw <= 8) {
+            if (xfer->cur_tx) {
+                data = *(uint8_t *)(xfer->cur_tx);
+            }
+            xfer->cur_tx += 1;
+        } else if (xfer->cur_bpw <= 16) {
+            if (xfer->cur_tx) {
+                data = *(uint16_t *)(xfer->cur_tx);
+            }
+            xfer->cur_tx += 2;
+        } else if (xfer->cur_bpw <= 32) {
+            if (xfer->cur_tx) {
+                data = *(uint32_t *)(xfer->cur_tx);
+            }
+            xfer->cur_tx += 4;
+        } else {
+            return -EINVAL;
+        }
+        tsb_spi_write(info->reg_base, DW_SPI_DR, data);
+        xfer->tx_remaining--;
+    }
+    return 0;
 }
 
 /**
@@ -648,16 +730,58 @@ err_unlock:
  */
 static int tsb_spi_irq_handler(int irq, void *context)
 {
-    struct tsb_spi_info *info = (struct tsb_spi_info *)context;
-    uint32_t isr_reg;
+    struct device *dev = spi_dev;
+    struct tsb_spi_info *info = NULL;
+    uint32_t isr, imr;
 
-    isr_reg = tsb_spi_read(info->reg_base, DW_SPI_SR);
+    if (!dev || !device_get_private(dev)) {
+        return ERROR;
+    }
+    info = device_get_private(dev);
 
-    if (isr_reg & SPI_ISR_RXFIS_MASK) {
-        info->curr_xfer.stop_read = 1;
+    isr = tsb_spi_read(info->reg_base, DW_SPI_ISR);
+    imr = tsb_spi_read(info->reg_base, DW_SPI_IMR);
+    if (!isr && !imr) {
+        /* ignore unexpected interrupt */
+        return OK;
     }
 
-    return 0;
+    if (isr & (SPI_ISR_RXUIS_MASK | SPI_ISR_RXOIS_MASK)) {
+        /* disable all interrupts */
+        tsb_spi_write(info->reg_base, DW_SPI_IMR, 0);
+        /* clean interrupt status */
+        tsb_spi_read(info->reg_base, DW_SPI_RXOICR);
+        tsb_spi_read(info->reg_base, DW_SPI_RXUICR);
+        tsb_spi_read(info->reg_base, DW_SPI_ICR);
+
+        /* abort the transfer and return error status*/
+        info->curr_xfer.status = -EIO;
+        sem_post(&info->xfer_completed);
+        return ERROR;
+    }
+
+    /* receive data */
+    tsb_spi_process_rx(info);
+
+    if (!info->curr_xfer.rx_remaining) {
+        /* disable Tx empty interrupt */
+        tsb_spi_write(info->reg_base, DW_SPI_IMR, (imr & ~SPI_ISR_TXEIS_MASK));
+        info->curr_xfer.status = 0;
+        /* receive data completed */
+        sem_post(&info->xfer_completed);
+        return OK;
+    }
+
+    if (isr & SPI_ISR_TXEIS_MASK) {
+        /* disable Tx empty interrupt */
+        imr = tsb_spi_read(info->reg_base, DW_SPI_IMR);
+        tsb_spi_write(info->reg_base, DW_SPI_IMR, (imr & ~SPI_ISR_TXEIS_MASK));
+        /* transfer data */
+        tsb_spi_process_tx(info);
+        /* enable Tx empty interrupt */
+        tsb_spi_write(info->reg_base, DW_SPI_IMR, (imr | SPI_ISR_TXEIS_MASK));
+    }
+    return OK;
 }
 
 /**
@@ -694,6 +818,45 @@ static int tsb_spi_getcaps(struct device *dev, struct master_spi_caps *caps)
 }
 
 /**
+ * @brief Get SPI board configured information.
+ *
+ * This function can be called whether lock() has been called or not.
+ *
+ * @param dev pointer to structure of device data
+ * @return 0 on success, negative errno on error
+ */
+static int tsb_spi_query_board_cfg(struct device *dev)
+{
+    struct tsb_spi_info *info = NULL;
+    int ret = 0, i;
+
+    info = device_get_private(dev);
+
+    /* get number of SPI slave device */
+    ret = device_spi_board_get_device_num(info->spi_board_dev, &info->dev_num);
+    if (ret) {
+        return ret;
+    }
+    /* Get SPI specific chip configured information */
+    info->board_cfg = zalloc(info->dev_num *
+                             sizeof(struct spi_board_device_cfg));
+    if (!info->board_cfg) {
+        return -ENOMEM;
+    }
+    for (i = 0; i < info->dev_num; i++) {
+        ret = device_spi_board_get_device_cfg(info->spi_board_dev, i,
+                                              &info->board_cfg[i]);
+        if (ret) {
+            return ret;
+        }
+    }
+    /* get using_gpio config */
+    ret = device_spi_board_is_using_gpio_cs(info->spi_board_dev,
+                                            &info->using_gpio);
+    return ret;
+}
+
+/**
  * @brief Get SPI specific chip configured information.
  *
  * This function can be called whether lock() has been called or not.
@@ -716,13 +879,18 @@ static int tsb_spi_get_cfg(struct device *dev, uint8_t cs,
 
     info = device_get_private(dev);
 
+    if (!info->board_cfg || cs >= info->dev_num) {
+        return -EINVAL;
+    }
+
     sem_wait(&info->lock);
 
-    dev_cfg->mode = info->dev_cfg[cs].mode;
-    dev_cfg->bpw = info->dev_cfg[cs].bpw;
-    dev_cfg->max_speed_hz = info->dev_cfg[cs].max_speed_hz;
-    memcpy(dev_cfg->name, &info->dev_cfg[cs].name,
-           sizeof(info->dev_cfg[cs].name));
+    /* get device config */
+    dev_cfg->mode = info->board_cfg[cs].mode;
+    dev_cfg->bpw = info->board_cfg[cs].bpw;
+    dev_cfg->max_speed_hz = info->board_cfg[cs].max_speed_hz;
+    strncpy((char*)dev_cfg->name, (char*)info->board_cfg[cs].name,
+            sizeof(dev_cfg->name) - 1);
     sem_post(&info->lock);
     return 0;
 }
@@ -738,7 +906,12 @@ static void tsb_spi_hw_deinit(struct tsb_spi_info *info)
     tsb_spi_write(info->reg_base, DW_SPI_SSIENR, 0);
 
     /* Release pinshare for SPI */
-    tsb_release_pinshare(TSB_PIN_GPIO13 | TSB_PIN_SPIM_CS1);
+    if (info->using_gpio) {
+        tsb_release_pinshare(TSB_PIN_GPIO13);
+    } else {
+        tsb_release_pinshare(TSB_PIN_GPIO13 | TSB_PIN_GPIO15 |
+                             TSB_PIN_SPIM_CS1);
+    }
 
     tsb_clk_disable(TSB_CLK_SPIP);
     tsb_clk_disable(TSB_CLK_SPIS);
@@ -752,7 +925,7 @@ static void tsb_spi_hw_deinit(struct tsb_spi_info *info)
  */
 static int tsb_spi_hw_init(struct tsb_spi_info *info)
 {
-    uint32_t ctrl0;
+    uint32_t ctrl0, pinshare = 0;
     int ret = 0;
 
     /* Enable Clock */
@@ -769,10 +942,8 @@ static int tsb_spi_hw_init(struct tsb_spi_info *info)
     /* Disable SPI all interrupts */
     tsb_spi_write(info->reg_base, DW_SPI_IMR, 0);
 
-    /* Enable SPI controller */
-    tsb_spi_write(info->reg_base, DW_SPI_SSIENR, 1);
-
-    tsb_spi_write(info->reg_base, DW_SPI_TXFTLR, info->tx_fifo_depth);
+    /* Clear interrupt status register */
+    tsb_spi_read(info->reg_base, DW_SPI_ICR);
 
     /* The SPI support both transmit and receiver mode */
     ctrl0 = tsb_spi_read(info->reg_base, DW_SPI_CTRLR0);
@@ -780,92 +951,32 @@ static int tsb_spi_hw_init(struct tsb_spi_info *info)
     tsb_spi_write(info->reg_base, DW_SPI_CTRLR0, ctrl0);
 
     /* Check pinshare for SPIM pins */
-    ret = tsb_request_pinshare(TSB_PIN_GPIO13 |TSB_PIN_SPIM_CS1);
+    if (info->using_gpio) {
+        /* SPIM_CLK / SPIM_SDO / SPIM_SDI */
+        pinshare = TSB_PIN_GPIO13;
+    } else {
+        /* SPIM_CLK / SPIM_SDO / SPIM_SDI & CS0 & CS1 */
+        pinshare = TSB_PIN_GPIO13 | TSB_PIN_GPIO15 | TSB_PIN_SPIM_CS1;
+    }
+
+    ret = tsb_request_pinshare(pinshare);
     if (ret) {
         lowsyslog("SPI: cannot get ownership of SPI pins\n");
         goto err_req_pinshare;
     }
-
     /* Configure pin functionality for SPI */
-    tsb_clr_pinshare(TSB_PIN_GPIO13);
-    tsb_set_pinshare(TSB_PIN_SPIM_CS1);
-
+    if (info->using_gpio) {
+        /* Configure GPIO pinshare on SPI board driver when using GPIO instead
+         * of internal chip-select.
+         */
+        tsb_clr_pinshare(TSB_PIN_GPIO13);
+    } else {
+        tsb_clr_pinshare(TSB_PIN_GPIO13);
+        tsb_clr_pinshare(TSB_PIN_GPIO15);
+        tsb_set_pinshare(TSB_PIN_SPIM_CS1);
+    }
 err_req_pinshare:
     return ret;
-}
-
-/**
- * @brief Receive processing thread
- *
- * @param dev Pointer to structure of device data
- */
-static void *tsb_spi_read_thread(void *data)
-{
-    struct tsb_spi_info *info = (struct tsb_spi_info *) data;
-    int i = 0;
-    uint8_t u8_dr;
-    uint16_t u16_dr;
-    uint32_t u32_dr, sr_reg;
-    uint8_t *rxbuf = NULL;
-
-    if (!info) {
-        return NULL;
-    }
-
-    while (1) {
-        sem_wait(&info->start_read);
-
-        if (info->thread_stop) {
-            break;
-        }
-
-        if (info->curr_xfer.cur_rx) {
-            rxbuf = info->curr_xfer.cur_rx;
-        }
-
-        sr_reg = tsb_spi_read(info->reg_base, DW_SPI_SR);
-
-        for (i = 0; i < info->curr_xfer.rx_len;) {
-            /* check if read process need to force stop */
-            if (info->curr_xfer.stop_read || info->thread_stop) {
-                break;
-            }
-
-            /* Read receiver fifo if not empty */
-            if (sr_reg & SPI_SR_RFNF_MASK) {
-                if (info->curr_xfer.cur_bpw <= 8) {
-                    u8_dr = tsb_spi_read(info->reg_base, DW_SPI_DR);
-                    if (rxbuf)
-                        *rxbuf++ = u8_dr;
-                    i++;
-                } else if (info->curr_xfer.cur_bpw <= 16) {
-                    u16_dr = tsb_spi_read(info->reg_base, DW_SPI_DR);
-                    if (rxbuf) {
-                        *(uint16_t *)rxbuf = u16_dr;
-                        rxbuf += 2;
-                    }
-                    i += 2;
-                } else {
-                    u32_dr = tsb_spi_read(info->reg_base, DW_SPI_DR);
-                    if (rxbuf) {
-                        *(uint32_t *)rxbuf = u32_dr;
-                        rxbuf += 4;
-                    }
-                    i += 4;
-                }
-            } else {
-                usleep(COMMAND_INTERVAL);
-            }
-            sr_reg = tsb_spi_read(info->reg_base, DW_SPI_SR);
-        }
-
-        /* Set Read process was completed */
-        if (i == info->curr_xfer.rx_len) {
-            info->curr_xfer.read_done = 1;
-        }
-    }
-
-    return NULL;
 }
 
 /**
@@ -896,51 +1007,64 @@ static int tsb_spi_dev_open(struct device *dev)
         ret = -EBUSY;
         goto err_open;
     }
-
-    ret = tsb_spi_hw_init(info);
-    if (ret) {
+    /* open SPI device board driver to get slave devices information */
+    info->spi_board_dev = device_open(DEVICE_TYPE_SPI_BOARD_HW, 0);
+    if (!info->spi_board_dev) {
+        ret = -EBUSY;
         goto err_open;
     }
-
+    ret = tsb_spi_query_board_cfg(dev);
+    if (ret) {
+        ret = -EIO;
+        goto err_hwinit;
+    }
     /* Set Capability */
     info->caps.csnum = CONFIG_SPI_MAX_CHIPS;
-    info->caps.modes = (SPI_MODE_CPHA | SPI_MODE_CPOL);
-
+    info->caps.modes = (SPI_MODE_CPHA | SPI_MODE_CPOL | SPI_MODE_LOOP);
+    if (info->using_gpio) {
+        info->caps.modes |= SPI_MODE_CS_HIGH;
+    }
     /* support both transmit and receive */
     info->caps.flags = 0;
 
      /* support 4 to 32 bits */
     info->caps.bpw = CONFIG_SPI_BPW_MASK;
 
+    info->cs_high = 0;
     info->caps.min_speed_hz = CONFIG_SPI_MIN_FREQ;
     info->caps.max_speed_hz = CONFIG_SPI_MAX_FREQ;
     info->tx_fifo_depth = CONFIG_SPI_TX_DEPTH;
     info->rx_fifo_depth = CONFIG_SPI_RX_DEPTH;
-    info->dev_cfg = chips_info;
-    info->curr_xfer.read_done = 0;
-    info->thread_stop = 0;
+    info->curr_xfer.cur_bpw = 8;
 
-    ret = pthread_create(&info->pthread_handler, NULL,
-                         tsb_spi_read_thread, info);
+    ret = tsb_spi_hw_init(info);
     if (ret) {
-        goto err_open;
+        goto err_hwinit;
     }
-
     /* register SPI IRQ number */
     ret = irq_attach(TSB_IRQ_SPI, tsb_spi_irq_handler);
     if (ret != OK) {
         ret = -EIO;
-        goto err_destory_thread;
+        goto err_irq;
     }
 
     up_enable_irq(TSB_IRQ_SPI);
 
     info->state = TSB_SPI_STATE_OPEN;
+    sem_post(&info->lock);
+    return ret;
 
-err_destory_thread:
-    info->thread_stop = 1;
-    sem_post(&info->start_read);
-    pthread_join(info->pthread_handler, NULL);
+err_irq:
+    tsb_spi_hw_deinit(info);
+err_hwinit:
+    if (info->spi_board_dev) {
+        device_close(info->spi_board_dev);
+        info->spi_board_dev = NULL;
+        if (info->board_cfg) {
+            free(info->board_cfg);
+            info->board_cfg = NULL;
+        }
+    }
 err_open:
     sem_post(&info->lock);
     return ret;
@@ -959,7 +1083,6 @@ err_open:
 static void tsb_spi_dev_close(struct device *dev)
 {
     struct tsb_spi_info *info = NULL;
-    irqstate_t flags;
 
     /* check input parameter */
     if (!dev || !device_get_private(dev)) {
@@ -970,19 +1093,19 @@ static void tsb_spi_dev_close(struct device *dev)
 
     sem_wait(&info->lock);
 
-    flags = irqsave();
     up_disable_irq(TSB_IRQ_SPI);
     irq_detach(TSB_IRQ_SPI);
 
-    if (info->pthread_handler != (pthread_t)0) {
-        info->thread_stop = 1;
-        sem_post(&info->start_read);
-        pthread_join(info->pthread_handler, NULL);
-    }
-
     tsb_spi_hw_deinit(info);
-    irqrestore(flags);
 
+    if (info->spi_board_dev) {
+        device_close(info->spi_board_dev);
+        info->spi_board_dev = NULL;
+    }
+    if (info->board_cfg) {
+        free(info->board_cfg);
+        info->board_cfg = NULL;
+    }
     info->state = TSB_SPI_STATE_CLOSED;
     sem_post(&info->lock);
 }
@@ -1027,11 +1150,11 @@ static int tsb_spi_dev_probe(struct device *dev)
     info->dev = dev;
     info->state = TSB_SPI_STATE_CLOSED;
     device_set_private(dev, info);
+    spi_dev = dev;
 
     sem_init(&info->bus, 0, 1);
     sem_init(&info->lock, 0, 1);
-    sem_init(&info->start_read, 0, 0);
-
+    sem_init(&info->xfer_completed, 0, 0);
     return 0;
 
 err_freemem:
@@ -1064,8 +1187,13 @@ static void tsb_spi_dev_remove(struct device *dev)
     info->state = TSB_SPI_STATE_INVALID;
     sem_destroy(&info->lock);
     sem_destroy(&info->bus);
-    sem_destroy(&info->start_read);
+    sem_destroy(&info->xfer_completed);
     device_set_private(dev, NULL);
+    spi_dev = NULL;
+    if (info->board_cfg) {
+        free(info->board_cfg);
+        info->board_cfg = NULL;
+    }
     free(info);
 }
 
